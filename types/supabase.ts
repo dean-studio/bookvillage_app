@@ -218,6 +218,41 @@ export type Database = {
           status?: 'sent' | 'failed'
         }
       }
+      market_items: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          description: string
+          price: number
+          images: Json
+          status: 'on_sale' | 'reserved' | 'sold'
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          description: string
+          price: number
+          images?: Json
+          status?: 'on_sale' | 'reserved' | 'sold'
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string
+          description?: string
+          price?: number
+          images?: Json
+          status?: 'on_sale' | 'reserved' | 'sold'
+          created_at?: string
+          updated_at?: string
+        }
+      }
     }
     Views: {
       overdue_rentals: {
