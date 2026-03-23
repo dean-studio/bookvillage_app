@@ -124,7 +124,7 @@ npx supabase db push
 
 ## 문서
 
-상세 기능 안내와 가이드는 [문서 사이트](https://your-username.github.io/bookvillage/)에서 확인할 수 있습니다.
+상세 기능 안내와 가이드는 [문서 사이트](https://dean-studio.github.io/bookvillage/)에서 확인할 수 있습니다.
 
 ```bash
 npm run docs:dev  # 문서 로컬 미리보기

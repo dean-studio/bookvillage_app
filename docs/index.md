@@ -10,7 +10,7 @@ hero:
       link: /features/rent
     - theme: alt
       text: GitHub
-      link: https://github.com/your-username/bookvillage
+      link: https://github.com/dean-studio/bookvillage
 
 features:
   - icon: 📱
