@@ -62,4 +62,4 @@ use-env.sh
 # typescript
 *.tsbuildinfo
 next-env.d.ts
-/docs_config/
+docs_config/
