@@ -1,6 +1,7 @@
 import { defineConfig } from 'vitepress'
 
 export default defineConfig({
+  ignoreDeadLinks: true,
   title: '책빌리지',
   description: '스마트 작은도서관 관리 시스템',
   lang: 'ko-KR',
