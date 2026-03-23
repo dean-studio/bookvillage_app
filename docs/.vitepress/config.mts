@@ -54,7 +54,7 @@ export default defineConfig({
       ],
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/your-username/bookvillage' },
+      { icon: 'github', link: 'https://github.com/dean-studio/bookvillage' },
     ],
     footer: {
       message: '스마트 작은도서관 관리 시스템',

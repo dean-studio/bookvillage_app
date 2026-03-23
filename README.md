@@ -64,7 +64,7 @@
 ## 시작하기
 
 ```bash
-git clone https://github.com/your-username/bookvillage.git
+git clone https://github.com/dean-studio/bookvillage.git
 cd bookvillage
 npm install
 cp .env.example .env.local  # 환경변수 설정
