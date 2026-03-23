@@ -50,6 +50,8 @@ CLAUDE.md
 docs/.vitepress/cache/
 docs/.vitepress/dist/
 
+docs/private_urls.md
+
 # supabase temp
 supabase/.temp/
 

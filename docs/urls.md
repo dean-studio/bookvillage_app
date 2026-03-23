@@ -1,6 +1,5 @@
 # 접속 주소 및 환경 정보
 
-
 ## 페이지별 경로
 
 ### 주민 영역 (태블릿 반응형, clamp() 큰 터치 UI)
@@ -70,7 +69,6 @@ cp -r .vercel-dev .vercel && npx vercel --prod
 cp -r .vercel-prod .vercel && npx vercel --prod
 ```
 
-
 ```bash
 # 마이그레이션 적용
 SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db push -p "비밀번호" <<< "Y"
@@ -78,7 +76,6 @@ SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db push -p "비밀번호" <<< "Y"
 # SQL 직접 실행
 SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db query --linked "SQL문"
 ```
-
 
 ## 인증 구조
 
