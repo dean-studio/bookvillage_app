@@ -1,12 +1,5 @@
 # 접속 주소 및 환경 정보
 
-## 배포 환경
-
-| 환경 | Vercel 프로젝트 | 주소 | 브랜치 |
-|------|----------------|------|--------|
-| Production | bookvillage | https://bookvillage.vercel.app | main |
-| Dev | bookvillage-dev | https://bookvillage-dev.vercel.app | dev |
-| 로컬 | - | http://localhost:6100 | - |
 
 ## 페이지별 경로
 
@@ -77,10 +70,6 @@ cp -r .vercel-dev .vercel && npx vercel --prod
 cp -r .vercel-prod .vercel && npx vercel --prod
 ```
 
-## Supabase
-
-- 프로젝트: wkirzhkwttjvcbvdhgsf
-- 대시보드: https://supabase.com/dashboard/project/wkirzhkwttjvcbvdhgsf
 
 ```bash
 # 마이그레이션 적용
@@ -90,11 +79,6 @@ SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db push -p "비밀번호" <<< "Y"
 SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db query --linked "SQL문"
 ```
 
-## Vercel
-
-- 계정: dean-studios-projects
-- bookvillage: https://vercel.com/dean-studios-projects/bookvillage
-- bookvillage-dev: https://vercel.com/dean-studios-projects/bookvillage-dev
 
 ## 인증 구조
 
