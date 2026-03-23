@@ -1,5 +1,9 @@
 # 책빌리지 (Book Village)
 
+
+##  상세 기능 안내와 가이드는 [문서 사이트](https://dean-studio.github.io/bookvillage/)에서 확인할 수 있습니다.
+
+
 > 관리비 0원으로 운영하는 스마트 작은도서관 관리 시스템
 
 ![img.png](img.png)
