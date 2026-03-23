@@ -75,8 +75,8 @@ CREATE TABLE books (
 );
 
 CREATE INDEX idx_books_barcode ON books(barcode);
-CREATE INDEX idx_books_title ON books USING gin(to_tsvector('korean', title));
-CREATE INDEX idx_books_author ON books USING gin(to_tsvector('korean', author));
+CREATE INDEX idx_books_title ON books USING gin(to_tsvector('simple', title));
+CREATE INDEX idx_books_author ON books USING gin(to_tsvector('simple', author));
 CREATE INDEX idx_books_available ON books(is_available) WHERE is_deleted = false;
 CREATE INDEX idx_books_location ON books(location_group, location_detail);
 

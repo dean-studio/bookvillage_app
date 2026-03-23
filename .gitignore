@@ -35,6 +35,24 @@ yarn-error.log*
 
 # vercel
 .vercel
+.vercel-dev/
+.vercel-prod/
+
+# claude code
+.claude/
+CLAUDE.md
+
+# IDE
+.idea/
+.vscode/
+
+# supabase temp
+supabase/.temp/
+
+# local scripts (contain secrets or personal config)
+start.sh
+copy-prod-to-dev.js
+use-env.sh
 
 # typescript
 *.tsbuildinfo

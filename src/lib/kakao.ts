@@ -5,6 +5,13 @@ export interface KakaoBookResult {
   thumbnail: string
   isbn: string
   contents: string
+  translators: string[]
+  datetime: string
+  price: number
+  sale_price: number
+  category: string
+  url: string
+  status: string
 }
 
 interface KakaoBookSearchResponse {
@@ -15,6 +22,13 @@ interface KakaoBookSearchResponse {
     thumbnail: string
     isbn: string
     contents: string
+    translators: string[]
+    datetime: string
+    price: number
+    sale_price: number
+    category: string
+    url: string
+    status: string
   }[]
   meta: {
     total_count: number
@@ -55,5 +69,12 @@ export async function searchBookByISBN(isbn: string): Promise<KakaoBookResult | 
     thumbnail: doc.thumbnail,
     isbn: doc.isbn,
     contents: doc.contents,
+    translators: doc.translators,
+    datetime: doc.datetime,
+    price: doc.price,
+    sale_price: doc.sale_price,
+    category: doc.category,
+    url: doc.url,
+    status: doc.status,
   }
 }

@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/app/actions/auth'
+import { getKSTDateString } from '@/lib/date'
 
 interface DashboardStats {
   summary: {
@@ -12,14 +13,17 @@ interface DashboardStats {
     new_members: number
   }
   top_readers: {
+    user_id: string
     user: { name: string; dong_ho: string }
     rental_count: number
   }[]
   popular_books: {
+    book_id: string
     book: { title: string; author: string; cover_image: string | null }
     rental_count: number
   }[]
   top_reviewers: {
+    user_id: string
     user: { name: string; dong_ho: string }
     report_count: number
   }[]
@@ -33,7 +37,7 @@ export async function getDashboardStats(
   if (!user || user.role !== 'admin') return null
 
   const supabase = await createClient()
-  const today = new Date().toISOString().split('T')[0]
+  const today = getKSTDateString()
 
   // 기간 내 총 대출 수
   const { count: totalRentals } = await supabase
@@ -88,10 +92,10 @@ export async function getDashboardStats(
       readerCounts.set(r.user_id, { name: profile.name, dong_ho: profile.dong_ho, count: 1 })
     }
   }
-  const top_readers = [...readerCounts.values()]
-    .sort((a, b) => b.count - a.count)
+  const top_readers = [...readerCounts.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 10)
-    .map((r) => ({ user: { name: r.name, dong_ho: r.dong_ho }, rental_count: r.count }))
+    .map(([userId, r]) => ({ user_id: userId, user: { name: r.name, dong_ho: r.dong_ho }, rental_count: r.count }))
 
   // 인기 도서 TOP 10: 기간 내 대출 많은 도서
   const { data: popularData } = await supabase
@@ -111,10 +115,11 @@ export async function getDashboardStats(
       bookCounts.set(r.book_id, { ...book, count: 1 })
     }
   }
-  const popular_books = [...bookCounts.values()]
-    .sort((a, b) => b.count - a.count)
+  const popular_books = [...bookCounts.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 10)
-    .map((b) => ({
+    .map(([bookId, b]) => ({
+      book_id: bookId,
       book: { title: b.title, author: b.author, cover_image: b.cover_image },
       rental_count: b.count,
     }))
@@ -137,10 +142,10 @@ export async function getDashboardStats(
       reviewerCounts.set(r.user_id, { name: profile.name, dong_ho: profile.dong_ho, count: 1 })
     }
   }
-  const top_reviewers = [...reviewerCounts.values()]
-    .sort((a, b) => b.count - a.count)
+  const top_reviewers = [...reviewerCounts.entries()]
+    .sort((a, b) => b[1].count - a[1].count)
     .slice(0, 10)
-    .map((r) => ({ user: { name: r.name, dong_ho: r.dong_ho }, report_count: r.count }))
+    .map(([userId, r]) => ({ user_id: userId, user: { name: r.name, dong_ho: r.dong_ho }, report_count: r.count }))
 
   return {
     summary: {
@@ -169,6 +174,8 @@ export async function getOverdueList() {
 
   return (data ?? []).map((r) => ({
     id: r.id,
+    user_id: r.user_id,
+    book_id: r.book_id,
     book: { title: r.book_title, barcode: r.book_barcode },
     user: { name: r.user_name, dong_ho: r.user_dong_ho, phone_number: r.user_phone },
     rented_at: r.rented_at,

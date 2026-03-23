@@ -4,93 +4,41 @@
 
 ```
 supabase/migrations/
-  00001_initial_schema.sql    -- 테이블 생성 (profiles, books, rentals, quizzes, quiz_attempts, book_reports, notifications)
-  00002_rls_policies.sql      -- Row Level Security 정책
-  00003_views.sql             -- 뷰 (overdue_rentals, book_ratings)
-  00004_market_items.sql      -- 중고장터 테이블 + RLS
+  00001_initial_schema.sql        -- 테이블 생성 (profiles, books, rentals, quizzes, quiz_attempts, book_reports, notifications)
+  00002_rls_policies.sql          -- Row Level Security 정책
+  00003_views.sql                 -- 뷰 (overdue_rentals, book_ratings)
+  00004_market_items.sql          -- 중고장터 테이블 + RLS
+  00005_storage_bucket.sql        -- Supabase Storage 버킷 (book-covers)
+  00006_admin_approval.sql        -- 관리자 승인 시스템 (admin_status 컬럼)
+  00007_shelves.sql               -- 서재/라벨 그리드 배치 테이블
+  00008_shelves_type.sql          -- 서재 type 컬럼 ('shelf' | 'label')
+  00009_books_extra_fields.sql    -- 도서 추가 필드 (isbn, translators, price, category 등)
+  00010_book_deletion_log.sql     -- 도서 삭제 감사 로그 테이블 (book_deletions)
+  00011_books_url_status.sql      -- 도서 URL/판매 상태 필드
+  00012_shelves_font.sql          -- 서재 폰트 커스터마이징 (font_size, font_bold)
+  00013_library_settings.sql      -- 도서관 설정 테이블 + 도서별 대출 기간 (rental_days)
+  00014_notifications_read.sql    -- 알림 읽음 처리 (profiles.notifications_read_at)
 ```
 
 ## 적용 방법
 
-### 방법 1: Supabase Dashboard (권장 - 초기 설정)
-
-1. [Supabase Dashboard](https://supabase.com/dashboard) > 프로젝트 선택
-2. **SQL Editor** 메뉴 클릭
-3. 마이그레이션 파일을 **번호 순서대로** 실행:
-   - `00001_initial_schema.sql` 실행 > Run 클릭
-   - `00002_rls_policies.sql` 실행 > Run 클릭
-   - `00003_views.sql` 실행 > Run 클릭
-   - `00004_market_items.sql` 실행 > Run 클릭
-
-### 방법 2: Supabase CLI
-
 ```bash
-# Supabase CLI 설치
-npm install -g supabase
-
-# 프로젝트 연결
-supabase link --project-ref wkirzhkwttjvcbvdhgsf
-
-# 마이그레이션 적용
-supabase db push
-```
-
-### 방법 3: psql 직접 실행
-
-```bash
-# Supabase Dashboard > Settings > Database > Connection string 에서 URI 확인
-psql "postgresql://postgres:[PASSWORD]@db.wkirzhkwttjvcbvdhgsf.supabase.co:5432/postgres" \
-  -f supabase/migrations/00001_initial_schema.sql \
-  -f supabase/migrations/00002_rls_policies.sql \
-  -f supabase/migrations/00003_views.sql \
-  -f supabase/migrations/00004_market_items.sql
+# Supabase CLI로 마이그레이션 적용
+SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db push -p "비밀번호" <<< "Y"
 ```
 
 ## 적용 후 확인사항
 
-1. **테이블 생성 확인**: Dashboard > Table Editor에서 8개 테이블 확인
-   - profiles, books, rentals, quizzes, quiz_attempts, book_reports, notifications, market_items
+1. **테이블 생성 확인** (11개 테이블):
+   - profiles, books, rentals, quizzes, quiz_attempts, book_reports
+   - notifications, market_items, shelves, library_settings, book_deletions
 
-2. **RLS 활성화 확인**: Dashboard > Authentication > Policies에서 모든 테이블에 정책 설정 확인
+2. **뷰 확인** (2개):
+   - overdue_rentals, book_ratings
 
-3. **뷰 확인**: SQL Editor에서 실행
-   ```sql
-   SELECT * FROM overdue_rentals LIMIT 1;
-   SELECT * FROM book_ratings LIMIT 1;
-   ```
+3. **트리거 확인**:
+   - `set_updated_at` (profiles, books, book_reports, market_items)
+   - `on_rental_created` (대출 시 books.is_available = false)
+   - `on_rental_returned` (반납 시 books.is_available = true)
 
-4. **트리거 확인**: SQL Editor에서 실행
-   ```sql
-   SELECT trigger_name, event_object_table
-   FROM information_schema.triggers
-   WHERE trigger_schema = 'public';
-   ```
-   기대 결과: `set_updated_at` (profiles, books, book_reports, market_items), `on_rental_created`, `on_rental_returned`
-
-5. **헬스체크**: 앱 실행 후 `/api/health` 엔드포인트로 Supabase 연결 확인
-   ```bash
-   curl http://localhost:3000/api/health
-   # 기대 응답: {"status":"healthy","checks":{"env":"ok","supabase":"ok"}}
-   ```
-
-## 롤백
-
-마이그레이션 롤백이 필요한 경우 SQL Editor에서 수동으로 실행:
-
-```sql
--- 주의: 모든 데이터가 삭제됩니다
-DROP VIEW IF EXISTS book_ratings;
-DROP VIEW IF EXISTS overdue_rentals;
-DROP TABLE IF EXISTS market_items CASCADE;
-DROP TABLE IF EXISTS notifications CASCADE;
-DROP TABLE IF EXISTS book_reports CASCADE;
-DROP TABLE IF EXISTS quiz_attempts CASCADE;
-DROP TABLE IF EXISTS quizzes CASCADE;
-DROP TABLE IF EXISTS rentals CASCADE;
-DROP TABLE IF EXISTS books CASCADE;
-DROP TABLE IF EXISTS profiles CASCADE;
-DROP FUNCTION IF EXISTS update_updated_at();
-DROP FUNCTION IF EXISTS handle_new_user();
-DROP FUNCTION IF EXISTS handle_rental_checkout();
-DROP FUNCTION IF EXISTS handle_rental_return();
-```
+4. **헬스체크**: `/api/health` 엔드포인트로 연결 확인

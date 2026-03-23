@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/app/actions/auth'
+import { awardJellyForReport } from '@/app/actions/jelly'
 import type { ActionResult, BookReport } from '@/types'
 import { z } from 'zod'
 
@@ -50,6 +51,34 @@ export async function getBookReports(bookId: string) {
   }
 }
 
+export async function getMyBookReports() {
+  const user = await getCurrentUser()
+  if (!user) return []
+
+  const supabase = await createClient()
+
+  const { data } = await supabase
+    .from('book_reports')
+    .select('id, book_id, review, rating, created_at, books!book_reports_book_id_fkey(title, cover_image)')
+    .eq('user_id', user.id)
+    .order('created_at', { ascending: false })
+
+  if (!data) return []
+
+  return data.map((r) => {
+    const book = r.books as { title: string; cover_image: string | null }
+    return {
+      id: r.id,
+      book_id: r.book_id,
+      book_title: book.title,
+      book_cover_image: book.cover_image,
+      review: r.review,
+      rating: r.rating,
+      created_at: r.created_at,
+    }
+  })
+}
+
 export async function createBookReport(formData: FormData): Promise<ActionResult<BookReport>> {
   const user = await getCurrentUser()
   if (!user) {
@@ -96,6 +125,10 @@ export async function createBookReport(formData: FormData): Promise<ActionResult
     }
     return { success: false, error: '독서록 작성에 실패했습니다.' }
   }
+
+  // 젤리 지급 (독서록 작성)
+  const { data: bookData } = await supabase.from('books').select('title').eq('id', book_id).single()
+  awardJellyForReport(user.id, bookData?.title ?? '', book_id).catch(() => {})
 
   return { success: true, data }
 }

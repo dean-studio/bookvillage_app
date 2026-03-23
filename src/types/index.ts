@@ -9,6 +9,7 @@ export type QuizAttempt = Database['public']['Tables']['quiz_attempts']['Row']
 export type BookReport = Database['public']['Tables']['book_reports']['Row']
 export type Notification = Database['public']['Tables']['notifications']['Row']
 export type MarketItem = Database['public']['Tables']['market_items']['Row']
+export type Shelf = Database['public']['Tables']['shelves']['Row']
 
 // View types
 export type OverdueRental = Database['public']['Views']['overdue_rentals']['Row']

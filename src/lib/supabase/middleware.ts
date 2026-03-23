@@ -31,10 +31,10 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // 인증 페이지: 로그인 상태면 /books로 리다이렉트
+  // 인증 페이지: 로그인 상태면 /rent로 리다이렉트
   if (user && (pathname === '/login' || pathname === '/signup')) {
     const url = request.nextUrl.clone()
-    url.pathname = '/books'
+    url.pathname = '/rent'
     return NextResponse.redirect(url)
   }
 
@@ -45,11 +45,34 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // 관리자 영역: 미인증이면 /login, 권한 없으면 /books로 리다이렉트
+  // 관리자 로그인/가입 페이지: 인증 불필요
+  if (pathname === '/admin/register') {
+    return supabaseResponse
+  }
+
+  // 관리자 로그인 페이지: 이미 관리자 인증 상태면 /admin으로 리다이렉트
+  if (pathname === '/admin/login') {
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single()
+
+      if (profile?.role === 'admin') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/admin'
+        return NextResponse.redirect(url)
+      }
+    }
+    return supabaseResponse
+  }
+
+  // 관리자 영역: 미인증이면 /admin/login, 권한 없으면 /admin/login으로 리다이렉트
   if (pathname.startsWith('/admin')) {
     if (!user) {
       const url = request.nextUrl.clone()
-      url.pathname = '/login'
+      url.pathname = '/admin/login'
       return NextResponse.redirect(url)
     }
 
@@ -61,7 +84,7 @@ export async function updateSession(request: NextRequest) {
 
     if (profile?.role !== 'admin') {
       const url = request.nextUrl.clone()
-      url.pathname = '/books'
+      url.pathname = '/admin/login'
       return NextResponse.redirect(url)
     }
   }

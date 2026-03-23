@@ -38,6 +38,13 @@ export async function GET(request: NextRequest) {
       cover_image: book.thumbnail,
       isbn: book.isbn,
       description: book.contents,
+      translators: book.translators.join(', '),
+      published_at: book.datetime ? book.datetime.slice(0, 10) : '',
+      price: book.price,
+      sale_price: book.sale_price,
+      category: book.category,
+      kakao_url: book.url,
+      sale_status: book.status,
     })
   } catch {
     return NextResponse.json(

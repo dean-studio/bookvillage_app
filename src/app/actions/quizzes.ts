@@ -2,6 +2,7 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from '@/app/actions/auth'
+import { awardJellyForQuiz } from '@/app/actions/jelly'
 import type { ActionResult, Quiz } from '@/types'
 import { z } from 'zod'
 
@@ -113,7 +114,7 @@ export async function submitQuizAnswer(formData: FormData): Promise<ActionResult
   // 퀴즈 조회
   const { data: quiz } = await supabase
     .from('quizzes')
-    .select('id, book_id, answer')
+    .select('id, book_id, answer, books!quizzes_book_id_fkey(title)')
     .eq('id', quiz_id)
     .single()
 
@@ -161,6 +162,12 @@ export async function submitQuizAnswer(formData: FormData): Promise<ActionResult
 
   if (error) {
     return { success: false, error: '퀴즈 제출에 실패했습니다.' }
+  }
+
+  // 정답이면 젤리 지급
+  if (is_correct) {
+    const bookTitle = (quiz.books as { title: string } | null)?.title ?? ''
+    awardJellyForQuiz(user.id, bookTitle, quiz.book_id).catch(() => {})
   }
 
   return {

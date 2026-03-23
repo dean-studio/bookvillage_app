@@ -15,3 +15,19 @@ export async function uploadMarketImage(file: File): Promise<string | null> {
   const { data } = supabase.storage.from('images').getPublicUrl(filePath)
   return data.publicUrl
 }
+
+export async function uploadBookCoverImage(file: File): Promise<string | null> {
+  const supabase = createClient()
+  const ext = file.name.split('.').pop() || 'jpg'
+  const fileName = `${crypto.randomUUID()}.${ext}`
+  const filePath = `books/${fileName}`
+
+  const { error } = await supabase.storage
+    .from('images')
+    .upload(filePath, file, { cacheControl: '3600', upsert: false })
+
+  if (error) return null
+
+  const { data } = supabase.storage.from('images').getPublicUrl(filePath)
+  return data.publicUrl
+}
