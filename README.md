@@ -2,7 +2,7 @@
 
 > 관리비 0원으로 운영하는 스마트 작은도서관 관리 시스템
 
-<!-- ![책빌리지 메인](docs/images/main-overview.png) -->
+![img.png](img.png)
 
 ## 만든 이유
 
