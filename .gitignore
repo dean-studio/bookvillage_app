@@ -46,6 +46,10 @@ CLAUDE.md
 .idea/
 .vscode/
 
+# vitepress
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
 # supabase temp
 supabase/.temp/
 
