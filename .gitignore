@@ -63,3 +63,6 @@ use-env.sh
 *.tsbuildinfo
 next-env.d.ts
 docs_config/
+
+# backups
+backups/
