@@ -24,7 +24,7 @@ supabase/migrations/
 
 ```bash
 # Supabase CLI로 마이그레이션 적용
-SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db push -p "비밀번호" <<< "Y"
+SUPABASE_ACCESS_TOKEN=<your-token> npx supabase db push -p "<db-password>" <<< "Y"
 ```
 
 ## 적용 후 확인사항

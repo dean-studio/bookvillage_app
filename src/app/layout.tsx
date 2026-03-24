@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { getPublicSettings } from "@/app/actions/settings";
+import { getThemeById } from "@/lib/themes";
 import "./globals.css";
 
 const pretendard = localFont({
@@ -45,16 +46,40 @@ export const viewport: Viewport = {
   userScalable: false,
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const settings = await getPublicSettings();
+  const theme = getThemeById(settings.color_theme || "yellow");
+  const lightVars = theme && theme.id !== "yellow" ? theme.light : {};
+  const darkVars = theme && theme.id !== "yellow" ? theme.dark : {};
+  const styleString =
+    Object.keys(lightVars).length > 0
+      ? Object.entries(lightVars)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(";")
+      : undefined;
+  const darkStyleString =
+    Object.keys(darkVars).length > 0
+      ? Object.entries(darkVars)
+          .map(([k, v]) => `${k}:${v}`)
+          .join(";")
+      : undefined;
+
   return (
     <html
       lang="ko"
       className={`${pretendard.variable} ${geistMono.variable} h-full antialiased`}
+      data-theme={settings.color_theme || "yellow"}
+      style={styleString ? (Object.fromEntries(Object.entries(lightVars)) as React.CSSProperties) : undefined}
     >
+      {darkStyleString && (
+        <head>
+          <style dangerouslySetInnerHTML={{ __html: `.dark{${darkStyleString}}` }} />
+        </head>
+      )}
       <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
       </body>

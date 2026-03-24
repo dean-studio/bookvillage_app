@@ -5,7 +5,7 @@ export default defineConfig({
   title: '책빌리지',
   description: '스마트 작은도서관 관리 시스템',
   lang: 'ko-KR',
-  base: '/bookvillage/',
+  base: '/bookvillage_app/',
   head: [
     ['meta', { name: 'theme-color', content: '#eab308' }],
   ],
@@ -55,7 +55,7 @@ export default defineConfig({
       ],
     },
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/dean-studio/bookvillage' },
+      { icon: 'github', link: 'https://github.com/dean-studio/bookvillage_app' },
     ],
     footer: {
       message: '스마트 작은도서관 관리 시스템',

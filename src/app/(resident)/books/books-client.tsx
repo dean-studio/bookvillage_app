@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useTransition, useCallback } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,14 +17,8 @@ export function BooksClient() {
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filter, setFilter] = useState<"all" | "available">("all");
-  const [books, setBooks] = useState<Book[]>([]);
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
-  const [totalCount, setTotalCount] = useState(0);
-  const [isLoading, startTransition] = useTransition();
-  const [initialLoaded, setInitialLoaded] = useState(false);
 
-  // Log search query (fire-and-forget)
   useEffect(() => {
     if (debouncedSearch.trim()) {
       logSearch(debouncedSearch.trim()).catch(() => {});
@@ -38,25 +33,21 @@ export function BooksClient() {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const fetchBooks = useCallback(() => {
-    startTransition(async () => {
-      const result = await getBooks({
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: ["books", debouncedSearch, filter, page],
+    queryFn: () =>
+      getBooks({
         q: debouncedSearch || undefined,
         available: filter === "available" ? true : undefined,
         page,
         limit: 20,
-      });
-      setBooks(result.books as Book[]);
-      setTotalPages(result.totalPages);
-      setTotalCount(result.totalCount);
-      setInitialLoaded(true);
-    });
-  }, [debouncedSearch, filter, page]);
+      }),
+    placeholderData: keepPreviousData,
+  });
 
-  // Fetch on mount and on changes
-  useEffect(() => {
-    fetchBooks();
-  }, [fetchBooks]);
+  const books = (data?.books ?? []) as Book[];
+  const totalPages = data?.totalPages ?? 0;
+  const totalCount = data?.totalCount ?? 0;
 
   function handleFilterChange(newFilter: "all" | "available") {
     setFilter(newFilter);
@@ -102,7 +93,7 @@ export function BooksClient() {
 
       {/* 도서 목록 */}
       <main className="flex-1 overflow-y-auto px-[clamp(1rem,3vw,2rem)] py-[1.5vh] space-y-[clamp(0.5rem,1vh,1rem)]">
-        {isLoading && !initialLoaded ? (
+        {isLoading ? (
           <div className="space-y-[clamp(0.5rem,1vh,1rem)] animate-pulse">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="rounded-lg border p-[clamp(0.8rem,2vw,1.2rem)]">
@@ -123,7 +114,7 @@ export function BooksClient() {
           </p>
         ) : (
           <>
-            {isLoading && (
+            {isFetching && (
               <div className="flex items-center justify-center py-2">
                 <Loader2 className="size-5 animate-spin text-muted-foreground" />
               </div>

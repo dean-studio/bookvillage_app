@@ -10,15 +10,17 @@ import { Loader2, ChevronLeft } from "lucide-react";
 
 const PIN_LENGTH = 4;
 
+type SiteType = "apartment" | "school" | "village";
+
 type LoginStep = "phone" | "pin";
 type SignupStep = "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin";
 type Step = LoginStep | SignupStep;
 
-const SIGNUP_STEPS: SignupStep[] = ["s-name", "s-phone", "s-dong", "s-ho", "s-pin"];
-
-function getSignupStepIndex(step: Step): number {
-  return SIGNUP_STEPS.indexOf(step as SignupStep);
-}
+const SIGNUP_STEPS_MAP: Record<SiteType, SignupStep[]> = {
+  apartment: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin"],
+  school: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin"],
+  village: ["s-name", "s-phone", "s-dong", "s-pin"],
+};
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
@@ -30,26 +32,41 @@ export default function LoginPage() {
   const [dong, setDong] = useState("");
   const [ho, setHo] = useState("");
 
+  const [siteType, setSiteType] = useState<SiteType>("apartment");
   const [apartmentName, setApartmentName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
+  const [logoReady, setLogoReady] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
+  const signupSteps = SIGNUP_STEPS_MAP[siteType];
+
   useEffect(() => {
     getPublicSettings().then((settings) => {
       if (settings.apartment_name) setApartmentName(settings.apartment_name);
       if (settings.logo_url) setLogoUrl(settings.logo_url);
+      if (settings.site_type) setSiteType(settings.site_type as SiteType);
+      setSettingsLoaded(true);
+      if (!settings.logo_url) setLogoReady(true);
     });
   }, []);
 
-  const isNumpadStep =
-    step === "phone" || step === "pin" ||
-    step === "s-phone" || step === "s-pin" ||
-    step === "s-dong" || step === "s-ho";
+  function getSignupStepIndex(s: Step): number {
+    return signupSteps.indexOf(s as SignupStep);
+  }
 
-  const isTextInput = step === "s-name";
+  const isVillageAddress = siteType === "village" && step === "s-dong";
+  const isTextInput = step === "s-name" || isVillageAddress;
+
+  const isNumpadStep =
+    !isTextInput && (
+      step === "phone" || step === "pin" ||
+      step === "s-phone" || step === "s-pin" ||
+      step === "s-dong" || step === "s-ho"
+    );
 
   function handleNumberClick(num: string) {
     if (isPending) return;
@@ -106,11 +123,18 @@ export default function LoginPage() {
         setError("휴대폰 번호를 입력해주세요.");
       }
     } else if (step === "s-dong") {
-      if (dong.trim()) setStep("s-ho");
-      else setError("동을 입력해주세요.");
+      if (!dong.trim()) {
+        setError(getDongLabel() + "을(를) 입력해주세요.");
+        return;
+      }
+      if (siteType === "village") {
+        setStep("s-pin");
+      } else {
+        setStep("s-ho");
+      }
     } else if (step === "s-ho") {
       if (ho.trim()) setStep("s-pin");
-      else setError("호수를 입력해주세요.");
+      else setError(getHoLabel() + "을(를) 입력해주세요.");
     }
   }
 
@@ -122,7 +146,7 @@ export default function LoginPage() {
     } else {
       const idx = getSignupStepIndex(step);
       if (idx > 0) {
-        setStep(SIGNUP_STEPS[idx - 1]);
+        setStep(signupSteps[idx - 1]);
       } else {
         resetToLogin();
       }
@@ -168,9 +192,17 @@ export default function LoginPage() {
     });
   }
 
+  function formatDongHo(): string {
+    switch (siteType) {
+      case "apartment": return `${dong}동 ${ho}호`;
+      case "school": return `${dong}학년 ${ho}반`;
+      case "village": return dong;
+    }
+  }
+
   async function handleSignUp(fullPin: string) {
     setError(null);
-    const dongHo = `${dong}동 ${ho}호`;
+    const dongHo = formatDongHo();
     const formData = new FormData();
     formData.set("phone_number", phone);
     formData.set("pin", fullPin);
@@ -205,16 +237,40 @@ export default function LoginPage() {
     return `${value.slice(0, 3)}-${value.slice(3, 7)}-${maskedLast}`;
   }
 
+  function getDongLabel(): string {
+    switch (siteType) {
+      case "apartment": return "동";
+      case "school": return "학년";
+      case "village": return "지번";
+    }
+  }
+
+  function getHoLabel(): string {
+    switch (siteType) {
+      case "apartment": return "호수";
+      case "school": return "반";
+      default: return "";
+    }
+  }
+
   function getTitle(): string {
     switch (step) {
       case "phone": return "휴대폰 번호를 입력하세요";
       case "pin": return "비밀번호 4자리를 입력하세요";
       case "s-name": return "이름을 입력하세요";
       case "s-phone": return "휴대폰 번호를 입력하세요";
-      case "s-dong": return "동을 입력하세요";
-      case "s-ho": return "호수를 입력하세요";
+      case "s-dong":
+        switch (siteType) {
+          case "apartment": return "동을 입력하세요";
+          case "school": return "학년을 입력하세요";
+          case "village": return "지번을 입력하세요";
+        }
+        break;
+      case "s-ho":
+        return siteType === "school" ? "반을 입력하세요" : "호수를 입력하세요";
       case "s-pin": return "비밀번호 4자리를 설정하세요";
     }
+    return "";
   }
 
   const hasNextButton =
@@ -235,8 +291,13 @@ export default function LoginPage() {
     switch (step) {
       case "phone": return formatPhone(phone, phone.length > 7) || "\u00A0";
       case "s-phone": return formatPhone(phone) || "\u00A0";
-      case "s-dong": return dong ? `${dong}동` : "___동";
-      case "s-ho": return ho ? `${ho}호` : "___호";
+      case "s-dong":
+        if (siteType === "apartment") return dong ? `${dong}동` : "___동";
+        if (siteType === "school") return dong ? `${dong}학년` : "___학년";
+        return "";
+      case "s-ho":
+        if (siteType === "school") return ho ? `${ho}반` : "___반";
+        return ho ? `${ho}호` : "___호";
       default: return "";
     }
   }
@@ -245,23 +306,43 @@ export default function LoginPage() {
   const showProgress = mode === "signup" && signupIdx >= 0;
   const isPinStep = step === "pin" || step === "s-pin";
 
+  const numpadBtnClass = "h-[8.5vh] min-h-16 transition-transform duration-75 active:scale-90 active:brightness-90";
+
   return (
     <div className="flex h-dvh flex-col px-6 py-[3vh]">
       <div className="flex w-full max-w-lg mx-auto flex-col items-center flex-1">
         {/* 상단 영역: 헤더 + 안내 + 입력 표시 */}
         <div className="flex flex-col items-center gap-[2vh] flex-shrink-0">
-          {logoUrl && <img src={logoUrl} alt="" className="max-h-16 object-contain" />}
-          {apartmentName && <p className="text-[clamp(1rem,2.5vw,1.5rem)] text-muted-foreground">{apartmentName}</p>}
+          {/* 로고 + 아파트명: 로딩 중 스피너, 완료 후 fadeIn */}
+          {!settingsLoaded ? (
+            <div className="min-h-[4rem] flex items-center justify-center">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <div className={`flex flex-col items-center gap-[1vh] transition-opacity duration-500 ${logoReady ? "opacity-100" : "opacity-0"}`}>
+              {logoUrl && (
+                <img
+                  src={logoUrl}
+                  alt=""
+                  className="max-h-16 object-contain"
+                  onLoad={() => setLogoReady(true)}
+                />
+              )}
+              {apartmentName && (
+                <p className="text-[clamp(1rem,2.5vw,1.5rem)] text-muted-foreground">{apartmentName}</p>
+              )}
+            </div>
+          )}
 
           {showProgress && (
             <div className="w-full max-w-sm space-y-2">
               <p className="text-[clamp(1.2rem,3vw,1.8rem)] text-muted-foreground text-center">
-                {signupIdx + 1} / {SIGNUP_STEPS.length}
+                {signupIdx + 1} / {signupSteps.length}
               </p>
               <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
                 <div
                   className="h-full bg-primary rounded-full transition-all duration-300"
-                  style={{ width: `${((signupIdx + 1) / SIGNUP_STEPS.length) * 100}%` }}
+                  style={{ width: `${((signupIdx + 1) / signupSteps.length) * 100}%` }}
                 />
               </div>
             </div>
@@ -285,17 +366,28 @@ export default function LoginPage() {
 
         {/* 중간 영역: 값 표시 (flex-1로 남은 공간 차지) */}
         <div className="flex flex-1 items-center justify-center w-full">
-          {/* 텍스트 입력 (이름만) */}
+          {/* 텍스트 입력 (이름 + village 지번) */}
           {isTextInput && (
             <div className="w-full max-w-sm space-y-[3vh]">
-              <Input
-                placeholder="예: 홍길동"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleNext()}
-                className="h-[10vh] !text-[clamp(2.5rem,7vw,4.5rem)] text-center placeholder:!text-[clamp(1.8rem,4.5vw,3rem)]"
-                autoFocus
-              />
+              {step === "s-name" ? (
+                <Input
+                  placeholder="예: 홍길동"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleNext()}
+                  className="h-[10vh] !text-[clamp(2.5rem,7vw,4.5rem)] text-center placeholder:!text-[clamp(1.8rem,4.5vw,3rem)]"
+                  autoFocus
+                />
+              ) : (
+                <Input
+                  placeholder="예: 300-3"
+                  value={dong}
+                  onChange={(e) => setDong(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleNext()}
+                  className="h-[10vh] !text-[clamp(2.5rem,7vw,4.5rem)] text-center placeholder:!text-[clamp(1.8rem,4.5vw,3rem)]"
+                  autoFocus
+                />
+              )}
               <div className="flex gap-3">
                 <Button
                   variant="outline"
@@ -308,7 +400,7 @@ export default function LoginPage() {
                 <Button
                   className="h-[8vh] min-h-16 text-[clamp(1.3rem,3vw,1.8rem)] font-semibold flex-1"
                   onClick={handleNext}
-                  disabled={!name.trim()}
+                  disabled={step === "s-name" ? !name.trim() : !dong.trim()}
                 >
                   다음
                 </Button>
@@ -367,7 +459,7 @@ export default function LoginPage() {
                 <Button
                   key={num}
                   variant="outline"
-                  className="h-[8.5vh] min-h-16 text-[clamp(1.6rem,4.5vw,2.8rem)] font-semibold"
+                  className={`${numpadBtnClass} text-[clamp(1.6rem,4.5vw,2.8rem)] font-semibold`}
                   onClick={() => handleNumberClick(num)}
                   disabled={isPending}
                 >
@@ -376,7 +468,7 @@ export default function LoginPage() {
               ))}
               <Button
                 variant="ghost"
-                className="h-[8.5vh] min-h-16 text-[clamp(1.2rem,3vw,1.8rem)]"
+                className={`${numpadBtnClass} text-[clamp(1.2rem,3vw,1.8rem)]`}
                 onClick={handleDelete}
                 disabled={isPending}
               >
@@ -384,7 +476,7 @@ export default function LoginPage() {
               </Button>
               <Button
                 variant="outline"
-                className="h-[8.5vh] min-h-16 text-[clamp(1.6rem,4.5vw,2.8rem)] font-semibold"
+                className={`${numpadBtnClass} text-[clamp(1.6rem,4.5vw,2.8rem)] font-semibold`}
                 onClick={() => handleNumberClick("0")}
                 disabled={isPending}
               >
@@ -392,7 +484,7 @@ export default function LoginPage() {
               </Button>
               {hasNextButton ? (
                 <Button
-                  className="h-[8.5vh] min-h-16 text-[clamp(1.2rem,3vw,1.8rem)] font-semibold"
+                  className={`${numpadBtnClass} text-[clamp(1.2rem,3vw,1.8rem)] font-semibold`}
                   onClick={handleNext}
                   disabled={isNextDisabled() || isPending}
                 >
@@ -401,7 +493,7 @@ export default function LoginPage() {
               ) : (
                 <Button
                   variant="ghost"
-                  className="h-[8.5vh] min-h-16 text-[clamp(1.2rem,3vw,1.8rem)]"
+                  className={`${numpadBtnClass} text-[clamp(1.2rem,3vw,1.8rem)]`}
                   onClick={handleBack}
                   disabled={isPending}
                 >
@@ -422,7 +514,7 @@ export default function LoginPage() {
             처음이신가요? 회원가입
           </Button>
         )}
-        {mode === "signup" && isTextInput && (
+        {mode === "signup" && step === "s-name" && (
           <Button
             variant="link"
             className="text-[clamp(1rem,2.5vw,1.4rem)] flex-shrink-0 py-[1vh]"

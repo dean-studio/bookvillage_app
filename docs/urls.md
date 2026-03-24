@@ -71,10 +71,10 @@ cp -r .vercel-prod .vercel && npx vercel --prod
 
 ```bash
 # 마이그레이션 적용
-SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db push -p "비밀번호" <<< "Y"
+SUPABASE_ACCESS_TOKEN=<your-token> npx supabase db push -p "<db-password>" <<< "Y"
 
 # SQL 직접 실행
-SUPABASE_ACCESS_TOKEN=sbp_... npx supabase db query --linked "SQL문"
+SUPABASE_ACCESS_TOKEN=<your-token> npx supabase db query --linked "SQL문"
 ```
 
 ## 인증 구조
