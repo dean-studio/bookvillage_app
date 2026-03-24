@@ -3,11 +3,17 @@ import { defineConfig } from 'vitepress'
 export default defineConfig({
   ignoreDeadLinks: true,
   title: '책빌리지',
-  description: '스마트 작은도서관 관리 시스템',
+  description: '작은도서관 도서 대여 관리 시스템 | 도서관 대출 반납, 바코드 스캔, 도서 검색, 연체 관리, 독서 퀴즈',
   lang: 'ko-KR',
   base: '/bookvillage_app/',
   head: [
     ['meta', { name: 'theme-color', content: '#eab308' }],
+    ['meta', { name: 'keywords', content: '도서관, 작은도서관, 도서관 프로그램, 도서관 관리, 도서 대여, 도서 대출, 도서관 대여 프로그램, 도서관 관리 시스템, 도서관 대출 반납, 바코드 대출, 셀프 대출, 독서 관리, 독서록, 독서 퀴즈, 아파트 도서관, 학교 도서관, 마을 도서관, library management, book rental, open source' }],
+    ['meta', { name: 'author', content: '딘스튜디오 (dean.kr)' }],
+    ['meta', { property: 'og:title', content: '책빌리지 - 작은도서관 도서 대여 관리 시스템' }],
+    ['meta', { property: 'og:description', content: '관리비 0원으로 운영하는 스마트 작은도서관 관리 시스템. 바코드 스캔 대출/반납, 도서 검색, 연체 관리, 독서 퀴즈, 독서록까지.' }],
+    ['meta', { property: 'og:type', content: 'website' }],
+    ['meta', { property: 'og:locale', content: 'ko_KR' }],
   ],
   themeConfig: {
     nav: [
