@@ -157,4 +157,6 @@ npm run docs:dev  # http://localhost:6200/bookvillage/
 
 ## 라이선스
 
-MIT
+MIT + [Commons Clause](https://commonsclause.com/)
+
+자유롭게 사용, 수정, 배포할 수 있지만 **이 소프트웨어 자체를 유료로 판매하는 것은 금지**됩니다. 자세한 내용은 [LICENSE](LICENSE) 파일을 참고하세요.
