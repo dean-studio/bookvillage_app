@@ -117,6 +117,28 @@ export async function createBook(formData: FormData): Promise<ActionResult<Book>
     return { success: false, error: parsed.error.issues[0].message }
   }
 
+  // Check if soft-deleted book with same barcode exists → restore it
+  const { data: deletedBook } = await supabaseAdmin
+    .from('books')
+    .select('id')
+    .eq('barcode', parsed.data.barcode)
+    .eq('is_deleted', true)
+    .maybeSingle()
+
+  if (deletedBook) {
+    const { data, error } = await supabaseAdmin
+      .from('books')
+      .update({ ...parsed.data, is_deleted: false, is_available: true })
+      .eq('id', deletedBook.id)
+      .select()
+      .single()
+
+    if (error) {
+      return { success: false, error: '도서 복원에 실패했습니다.' }
+    }
+    return { success: true, data }
+  }
+
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('books')
@@ -210,10 +232,8 @@ export async function deleteBook(bookId: string): Promise<ActionResult> {
     return { success: false, error: '권한이 없습니다.' }
   }
 
-  const supabase = await createClient()
-
   // 현재 대출 중인지 확인
-  const { data: activeRental } = await supabase
+  const { data: activeRental } = await supabaseAdmin
     .from('rentals')
     .select('id')
     .eq('book_id', bookId)
@@ -226,14 +246,14 @@ export async function deleteBook(bookId: string): Promise<ActionResult> {
   }
 
   // Fetch book info for deletion log
-  const { data: book } = await supabase
+  const { data: book } = await supabaseAdmin
     .from('books')
     .select('id, title, barcode, author')
     .eq('id', bookId)
     .single()
 
   // soft delete
-  const { error } = await supabase
+  const { error } = await supabaseAdmin
     .from('books')
     .update({ is_deleted: true })
     .eq('id', bookId)
@@ -244,7 +264,7 @@ export async function deleteBook(bookId: string): Promise<ActionResult> {
 
   // Log deletion
   if (book) {
-    await supabase.from('book_deletions').insert({
+    await supabaseAdmin.from('book_deletions').insert({
       book_id: book.id,
       book_title: book.title,
       book_barcode: book.barcode,

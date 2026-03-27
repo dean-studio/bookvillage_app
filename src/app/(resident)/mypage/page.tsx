@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 import { getMyPageData } from "@/app/actions/mypage";
+import { getPublicSettings } from "@/app/actions/settings";
 import { useQuery } from "@tanstack/react-query";
 
 export default function MyPage() {
@@ -24,6 +25,14 @@ export default function MyPage() {
     queryKey: ["mypage"],
     queryFn: getMyPageData,
   });
+
+  const { data: publicSettings } = useQuery({
+    queryKey: ["publicSettings"],
+    queryFn: getPublicSettings,
+    staleTime: 1000 * 60 * 10,
+  });
+
+  const kakaoChannelId = publicSettings?.kakao_channel_id ?? "";
 
   const userName = data?.userName ?? "";
   const dongHo = data?.dongHo ?? "";
@@ -182,6 +191,20 @@ export default function MyPage() {
             </button>
           ))}
         </nav>
+
+        {/* 카카오톡 문의 */}
+        {kakaoChannelId && (
+          <a
+            href={`https://pf.kakao.com/${kakaoChannelId}/chat`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="w-full flex items-center gap-[clamp(0.8rem,2vw,1.2rem)] px-[3vw] py-[clamp(1.2rem,2.5vh,1.8rem)] border-b hover:bg-muted/50 active:bg-muted transition-colors"
+          >
+            <img src="/kakao_ch.png" alt="" className="size-[clamp(1.3rem,3vw,1.6rem)]" />
+            <span className="text-[clamp(1.1rem,2.5vw,1.4rem)] font-medium flex-1">카카오톡 문의</span>
+            <ChevronRight className="size-[clamp(1.1rem,2.5vw,1.4rem)] text-muted-foreground shrink-0" />
+          </a>
+        )}
 
         {/* 로그아웃 */}
         <div className="px-[3vw] pt-[3vh]">

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ArrowLeft, Building2, Check, Loader2, Palette, Save } from "lucide-react";
+import { ArrowLeft, Building2, Check, Loader2, MessageCircle, Palette, Save } from "lucide-react";
 import { getLibrarySettings, updateLibrarySetting, uploadLogo } from "@/app/actions/settings";
 import { THEMES, type ThemeId, getThemeById } from "@/lib/themes";
 
@@ -44,6 +44,7 @@ export default function SiteSettingsPage() {
   const [colorTheme, setColorTheme] = useState("yellow");
   const [apartmentName, setApartmentName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [kakaoChannelId, setKakaoChannelId] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [msg, setMsg] = useState<{ key: string; type: "success" | "error"; text: string } | null>(null);
@@ -55,6 +56,7 @@ export default function SiteSettingsPage() {
       setColorTheme(s.color_theme || "yellow");
       setApartmentName(s.apartment_name || "");
       setLogoUrl(s.logo_url || "");
+      setKakaoChannelId(s.kakao_channel_id || "");
       setLoaded(true);
     });
   }, []);
@@ -170,6 +172,56 @@ export default function SiteSettingsPage() {
           )}
         </CardContent>
       </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <MessageCircle className="size-4" />
+            카카오 채널 (고객 상담)
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {!loaded ? (
+            <div className="flex items-center justify-center py-4">
+              <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            </div>
+          ) : (
+            <>
+              <div className="flex items-end gap-2">
+                <div className="flex-1 space-y-1.5">
+                  <label className="text-sm font-medium">채널 ID</label>
+                  <Input
+                    type="text"
+                    placeholder="예: _ZeUTxl"
+                    value={kakaoChannelId}
+                    onChange={(e) => setKakaoChannelId(e.target.value)}
+                    className="max-w-xs"
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  onClick={() => handleSave("kakao_channel_id", kakaoChannelId)}
+                  disabled={savingKey !== null}
+                >
+                  {savingKey === "kakao_channel_id" ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4 mr-1" />}
+                  저장
+                </Button>
+              </div>
+              {msg?.key === "kakao_channel_id" && (
+                <p className={`text-xs ${msg.type === "success" ? "text-green-600" : "text-destructive"}`}>
+                  {msg.text}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                카카오톡 채널 홈 URL에서 확인: pf.kakao.com/<strong>채널ID</strong>
+              </p>
+              <p className="text-xs text-muted-foreground">
+                입력하면 로그인 페이지에 카카오톡 상담 버튼이 표시됩니다. 비워두면 버튼이 숨겨집니다.
+              </p>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

@@ -396,6 +396,10 @@ export default function ShelfBooksPage() {
         setDeleteTarget(null);
         setDeleteRentalInfo(null);
         loadBooks();
+      } else {
+        setRegError(result.error || "삭제에 실패했습니다.");
+        setDeleteTarget(null);
+        setDeleteRentalInfo(null);
       }
     });
   }

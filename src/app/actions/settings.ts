@@ -23,7 +23,7 @@ export async function getPublicSettings() {
   const { data } = await supabaseAdmin
     .from('library_settings')
     .select('key, value')
-    .in('key', ['apartment_name', 'logo_url', 'og_title', 'og_description', 'og_image_url', 'site_type', 'color_theme'])
+    .in('key', ['apartment_name', 'logo_url', 'og_title', 'og_description', 'og_image_url', 'site_type', 'color_theme', 'kakao_channel_id'])
 
   const settings: Record<string, string> = {}
   for (const row of data ?? []) {

@@ -35,60 +35,62 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <ShieldCheck className="size-6 text-primary" />
+    <div className="flex min-h-screen items-center justify-center bg-muted/30 px-6">
+      <Card className="w-full max-w-md">
+        <CardHeader className="text-center px-8 pt-10 pb-6">
+          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+            <ShieldCheck className="size-8 text-primary" />
           </div>
-          <CardTitle className="text-xl">관리자 로그인</CardTitle>
-          <p className="text-sm text-muted-foreground">책빌리지 관리자 전용</p>
+          <CardTitle className="text-2xl">관리자 로그인</CardTitle>
+          <p className="text-base text-muted-foreground mt-1">책빌리지 관리자 전용</p>
         </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+        <CardContent className="px-8 pb-10">
+          <form onSubmit={handleSubmit} className="space-y-6">
             {error && (
-              <div className="rounded-lg bg-destructive/10 px-4 py-3 text-center">
-                <p className="text-sm text-destructive">{error}</p>
+              <div className="rounded-lg bg-destructive/10 px-5 py-4 text-center">
+                <p className="text-base text-destructive">{error}</p>
               </div>
             )}
             <div>
-              <label className="text-sm font-medium mb-1 block">아이디</label>
+              <label className="text-base font-medium mb-2 block">아이디</label>
               <Input
                 placeholder="관리자 아이디"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 disabled={isPending}
                 autoFocus
+                className="h-13 text-lg px-4"
               />
             </div>
             <div>
-              <label className="text-sm font-medium mb-1 block">비밀번호</label>
+              <label className="text-base font-medium mb-2 block">비밀번호</label>
               <Input
                 type="password"
                 placeholder="비밀번호"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 disabled={isPending}
+                className="h-13 text-lg px-4"
               />
             </div>
             <Button
               type="submit"
-              className="w-full"
+              className="w-full h-13 text-lg mt-2"
               disabled={isPending || !username || !password}
             >
               {isPending ? (
                 <span className="flex items-center gap-2">
-                  <Loader2 className="size-4 animate-spin" /> 로그인 중...
+                  <Loader2 className="size-5 animate-spin" /> 로그인 중...
                 </span>
               ) : (
                 "로그인"
               )}
             </Button>
           </form>
-          <div className="text-center mt-4">
+          <div className="text-center mt-6">
             <Link
               href="/admin/register"
-              className="text-sm text-muted-foreground hover:underline"
+              className="text-base text-muted-foreground hover:underline"
             >
               관리자 가입 신청
             </Link>

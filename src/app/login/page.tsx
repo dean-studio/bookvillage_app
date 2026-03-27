@@ -13,13 +13,13 @@ const PIN_LENGTH = 4;
 type SiteType = "apartment" | "school" | "village";
 
 type LoginStep = "phone" | "pin";
-type SignupStep = "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin";
+type SignupStep = "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin" | "s-confirm";
 type Step = LoginStep | SignupStep;
 
 const SIGNUP_STEPS_MAP: Record<SiteType, SignupStep[]> = {
-  apartment: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin"],
-  school: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin"],
-  village: ["s-name", "s-phone", "s-dong", "s-pin"],
+  apartment: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
+  school: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
+  village: ["s-name", "s-phone", "s-dong", "s-pin", "s-confirm"],
 };
 
 export default function LoginPage() {
@@ -35,6 +35,7 @@ export default function LoginPage() {
   const [siteType, setSiteType] = useState<SiteType>("apartment");
   const [apartmentName, setApartmentName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
+  const [kakaoChannelId, setKakaoChannelId] = useState("");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [logoReady, setLogoReady] = useState(false);
 
@@ -49,6 +50,7 @@ export default function LoginPage() {
       if (settings.apartment_name) setApartmentName(settings.apartment_name);
       if (settings.logo_url) setLogoUrl(settings.logo_url);
       if (settings.site_type) setSiteType(settings.site_type as SiteType);
+      if (settings.kakao_channel_id) setKakaoChannelId(settings.kakao_channel_id);
       setSettingsLoaded(true);
       if (!settings.logo_url) setLogoReady(true);
     });
@@ -79,7 +81,7 @@ export default function LoginPage() {
         if (step === "pin") {
           handleLogin(newPin);
         } else {
-          handleSignUp(newPin);
+          setStep("s-confirm");
         }
       }
     } else if (step === "s-dong" && dong.length < 4) {
@@ -140,15 +142,21 @@ export default function LoginPage() {
 
   function handleBack() {
     setError(null);
-    setPin("");
     if (mode === "login") {
+      setPin("");
       if (step === "pin") setStep("phone");
     } else {
-      const idx = getSignupStepIndex(step);
-      if (idx > 0) {
-        setStep(signupSteps[idx - 1]);
+      if (step === "s-confirm") {
+        setPin("");
+        setStep("s-pin");
       } else {
-        resetToLogin();
+        setPin("");
+        const idx = getSignupStepIndex(step);
+        if (idx > 0) {
+          setStep(signupSteps[idx - 1]);
+        } else {
+          resetToLogin();
+        }
       }
     }
   }
@@ -269,6 +277,7 @@ export default function LoginPage() {
       case "s-ho":
         return siteType === "school" ? "반을 입력하세요" : "호수를 입력하세요";
       case "s-pin": return "비밀번호 4자리를 설정하세요";
+      case "s-confirm": return "입력한 정보를 확인해주세요";
     }
     return "";
   }
@@ -303,14 +312,26 @@ export default function LoginPage() {
   }
 
   const signupIdx = getSignupStepIndex(step);
-  const showProgress = mode === "signup" && signupIdx >= 0;
+  const showProgress = mode === "signup" && signupIdx >= 0 && step !== "s-confirm";
   const isPinStep = step === "pin" || step === "s-pin";
+  const isConfirmStep = step === "s-confirm";
 
   const numpadBtnClass = "h-[8.5vh] min-h-16 transition-transform duration-75 active:scale-90 active:brightness-90";
 
   return (
-    <div className="flex h-dvh flex-col px-6 py-[3vh]">
-      <div className="flex w-full max-w-lg mx-auto flex-col items-center flex-1">
+    <div className="flex h-dvh flex-col">
+      {kakaoChannelId && settingsLoaded && (
+        <a
+          href={`https://pf.kakao.com/${kakaoChannelId}/chat`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center justify-center gap-2 bg-[#FEE500] py-2 text-[clamp(0.8rem,1.8vw,0.95rem)] font-medium text-[#191919] hover:brightness-95 active:brightness-90 transition-all flex-shrink-0"
+        >
+          <img src="/kakao_ch.png" alt="" className="size-[clamp(1rem,2.2vw,1.2rem)]" />
+          카카오톡 문의
+        </a>
+      )}
+      <div className="flex w-full max-w-lg mx-auto flex-col items-center flex-1 px-6 py-[3vh]">
         {/* 상단 영역: 헤더 + 안내 + 입력 표시 */}
         <div className="flex flex-col items-center gap-[2vh] flex-shrink-0">
           {/* 로고 + 아파트명: 로딩 중 스피너, 완료 후 fadeIn */}
@@ -350,13 +371,13 @@ export default function LoginPage() {
 
           <p className="text-[clamp(1.6rem,4vw,2.4rem)] font-bold">{getTitle()}</p>
 
-          {error && (
+          {error && !isConfirmStep && (
             <div className="w-full max-w-sm rounded-lg bg-destructive/10 px-4 py-3 text-center">
               <p className="text-[clamp(1rem,2.5vw,1.4rem)] text-destructive">{error}</p>
             </div>
           )}
 
-          {isPending && (
+          {isPending && !isConfirmStep && (
             <div className="flex items-center gap-2 text-muted-foreground">
               <Loader2 className="size-6 animate-spin" />
               <span className="text-[clamp(1rem,2.5vw,1.4rem)]">처리 중...</span>
@@ -375,7 +396,7 @@ export default function LoginPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleNext()}
-                  className="h-[10vh] !text-[clamp(2.5rem,7vw,4.5rem)] text-center placeholder:!text-[clamp(1.8rem,4.5vw,3rem)]"
+                  className="h-[10vh] !text-[clamp(2.5rem,7vw,4.5rem)] text-center leading-[10vh] placeholder:!text-[clamp(2.2rem,6vw,3.8rem)] placeholder:leading-[10vh]"
                   autoFocus
                 />
               ) : (
@@ -384,7 +405,7 @@ export default function LoginPage() {
                   value={dong}
                   onChange={(e) => setDong(e.target.value)}
                   onKeyDown={(e) => e.key === "Enter" && handleNext()}
-                  className="h-[10vh] !text-[clamp(2.5rem,7vw,4.5rem)] text-center placeholder:!text-[clamp(1.8rem,4.5vw,3rem)]"
+                  className="h-[10vh] !text-[clamp(2.5rem,7vw,4.5rem)] text-center leading-[10vh] placeholder:!text-[clamp(2.2rem,6vw,3.8rem)] placeholder:leading-[10vh]"
                   autoFocus
                 />
               )}
@@ -437,6 +458,57 @@ export default function LoginPage() {
                   }}
                 />
               ))}
+            </div>
+          )}
+
+          {/* 가입 확인 */}
+          {isConfirmStep && (
+            <div className="w-full max-w-sm space-y-[3vh]">
+              <div className="rounded-xl border bg-card p-[clamp(1.2rem,3vw,1.8rem)] space-y-[clamp(1rem,2vh,1.5rem)]">
+                {[
+                  { label: "이름", value: name },
+                  { label: "휴대폰", value: formatPhone(phone) },
+                  { label: siteType === "village" ? "지번" : (siteType === "school" ? "학년/반" : "동/호"), value: formatDongHo() },
+                  { label: "비밀번호", value: "●".repeat(PIN_LENGTH) },
+                ].map((item) => (
+                  <div key={item.label} className="flex justify-between items-center">
+                    <span className="text-[clamp(1rem,2.5vw,1.3rem)] text-muted-foreground">{item.label}</span>
+                    <span className="text-[clamp(1.1rem,2.8vw,1.5rem)] font-semibold">{item.value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {error && (
+                <div className="rounded-lg bg-destructive/10 px-4 py-3 text-center">
+                  <p className="text-[clamp(1rem,2.5vw,1.4rem)] text-destructive">{error}</p>
+                </div>
+              )}
+
+              {isPending && (
+                <div className="flex items-center justify-center gap-2 text-muted-foreground">
+                  <Loader2 className="size-6 animate-spin" />
+                  <span className="text-[clamp(1rem,2.5vw,1.4rem)]">가입 처리 중...</span>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="h-[8vh] min-h-16 text-[clamp(1.3rem,3vw,1.8rem)] flex-1"
+                  onClick={handleBack}
+                  disabled={isPending}
+                >
+                  <ChevronLeft className="size-6 mr-1" />
+                  수정
+                </Button>
+                <Button
+                  className="h-[8vh] min-h-16 text-[clamp(1.3rem,3vw,1.8rem)] font-semibold flex-1"
+                  onClick={() => handleSignUp(pin)}
+                  disabled={isPending}
+                >
+                  가입하기
+                </Button>
+              </div>
             </div>
           )}
         </div>
@@ -523,6 +595,8 @@ export default function LoginPage() {
             이미 회원이신가요? 로그인
           </Button>
         )}
+
+
       </div>
     </div>
   );
