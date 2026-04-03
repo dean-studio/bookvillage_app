@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="logo.png" width="400" />
+  <img src="logo2.png" width="400" />
 </p>
 
 # 책빌리지 (Book Village) — 작은도서관 도서 대여 관리 프로그램
