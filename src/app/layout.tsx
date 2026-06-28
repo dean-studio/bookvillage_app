@@ -20,19 +20,21 @@ const geistMono = Geist_Mono({
 export async function generateMetadata(): Promise<Metadata> {
   const settings = await getPublicSettings();
 
-  const title = settings.og_title || "책빌리지";
-  const description = settings.og_description || "아파트 스마트 작은도서관 관리 및 독서 커뮤니티";
-  const ogImage = settings.og_image_url || settings.logo_url;
   const apartmentName = settings.apartment_name;
+  const title = settings.og_title || apartmentName || "작은도서관";
+  const description = settings.og_description || "스마트 작은도서관 관리 및 독서 커뮤니티";
+  const ogImage = settings.og_image_url || settings.logo_url;
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL;
 
   return {
+    ...(appUrl ? { metadataBase: new URL(appUrl) } : {}),
     title: {
-      default: apartmentName ? `${title} - ${apartmentName}` : title,
+      default: title,
       template: `%s | ${title}`,
     },
     description,
     openGraph: {
-      title: apartmentName ? `${title} - ${apartmentName}` : title,
+      title,
       description,
       ...(ogImage ? { images: [{ url: ogImage }] } : {}),
     },

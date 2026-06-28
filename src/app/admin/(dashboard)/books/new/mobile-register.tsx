@@ -194,13 +194,23 @@ export function MobileRegister() {
 
   async function initScanner() {
     try {
-      const { Html5Qrcode } = await import("html5-qrcode");
-      const html5QrCode = new Html5Qrcode("barcode-reader");
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
+      // ISBN(EAN-13)·자체 바코드만 인식하도록 포맷 제한 → 부가기호(add-on) 붙은
+      // 한국 도서 바코드 인식 실패 방지 + 인식 속도 향상
+      const html5QrCode = new Html5Qrcode("barcode-reader", {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+        ],
+        verbose: false,
+      });
       scannerRef.current = html5QrCode;
 
       await html5QrCode.start(
         { facingMode: "environment" },
-        { fps: 10 },
+        { fps: 10, qrbox: { width: 280, height: 120 } },
         (decodedText: string) => {
           html5QrCode.stop().then(() => {
             scannerRef.current = null;

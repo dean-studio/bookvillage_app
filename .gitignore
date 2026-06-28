@@ -35,8 +35,10 @@ yarn-error.log*
 
 # vercel
 .vercel
-.vercel-dev/
-.vercel-prod/
+.vercel-*/
+
+# supabase dumps (DB 덤프 - 계정/설정 등 포함)
+supabase/dumps/
 
 # claude code
 .claude/

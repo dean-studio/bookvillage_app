@@ -20,7 +20,7 @@ export default function OgSettingsPage() {
 
   useEffect(() => {
     getLibrarySettings().then((s) => {
-      setOgTitle(s.og_title || "책빌리지");
+      setOgTitle(s.og_title || s.apartment_name || "");
       setOgDescription(s.og_description || "");
       setOgImageUrl(s.og_image_url || "");
       setLoaded(true);
@@ -87,7 +87,7 @@ export default function OgSettingsPage() {
                   <label className="text-sm font-medium">OG 제목</label>
                   <Input
                     type="text"
-                    placeholder="책빌리지"
+                    placeholder="예: 성남 중앙힐스테이트2차 도서관"
                     value={ogTitle}
                     onChange={(e) => setOgTitle(e.target.value)}
                     className="max-w-xs"

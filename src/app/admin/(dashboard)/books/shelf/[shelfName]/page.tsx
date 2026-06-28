@@ -199,8 +199,16 @@ export default function ShelfBooksPage() {
     setRegSuccess(false);
 
     try {
-      const { Html5Qrcode } = await import("html5-qrcode");
-      const html5QrCode = new Html5Qrcode("shelf-barcode-reader");
+      const { Html5Qrcode, Html5QrcodeSupportedFormats } = await import("html5-qrcode");
+      const html5QrCode = new Html5Qrcode("shelf-barcode-reader", {
+        formatsToSupport: [
+          Html5QrcodeSupportedFormats.EAN_13,
+          Html5QrcodeSupportedFormats.EAN_8,
+          Html5QrcodeSupportedFormats.CODE_128,
+          Html5QrcodeSupportedFormats.CODE_39,
+        ],
+        verbose: false,
+      });
       scannerRef.current = html5QrCode;
 
       await html5QrCode.start(

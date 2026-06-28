@@ -4,7 +4,7 @@ import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { signIn, signUp, checkPhoneExists } from "@/app/actions/auth";
+import { signInByDongHo, signUp, checkPhoneExists } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
 import { Loader2, ChevronLeft } from "lucide-react";
 
@@ -12,7 +12,7 @@ const PIN_LENGTH = 4;
 
 type SiteType = "apartment" | "school" | "village";
 
-type LoginStep = "phone" | "pin";
+type LoginStep = "l-dong" | "l-ho" | "pin";
 type SignupStep = "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin" | "s-confirm";
 type Step = LoginStep | SignupStep;
 
@@ -24,7 +24,7 @@ const SIGNUP_STEPS_MAP: Record<SiteType, SignupStep[]> = {
 
 export default function LoginPage() {
   const [mode, setMode] = useState<"login" | "signup">("login");
-  const [step, setStep] = useState<Step>("phone");
+  const [step, setStep] = useState<Step>("l-dong");
 
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
@@ -60,19 +60,20 @@ export default function LoginPage() {
     return signupSteps.indexOf(s as SignupStep);
   }
 
-  const isVillageAddress = siteType === "village" && step === "s-dong";
+  const isVillageAddress = siteType === "village" && (step === "s-dong" || step === "l-dong");
   const isTextInput = step === "s-name" || isVillageAddress;
 
   const isNumpadStep =
     !isTextInput && (
-      step === "phone" || step === "pin" ||
+      step === "pin" ||
+      step === "l-dong" || step === "l-ho" ||
       step === "s-phone" || step === "s-pin" ||
       step === "s-dong" || step === "s-ho"
     );
 
   function handleNumberClick(num: string) {
     if (isPending) return;
-    if ((step === "phone" || step === "s-phone") && phone.length < 11) {
+    if (step === "s-phone" && phone.length < 11) {
       setPhone((prev) => prev + num);
     } else if ((step === "pin" || step === "s-pin") && pin.length < PIN_LENGTH) {
       const newPin = pin + num;
@@ -84,30 +85,37 @@ export default function LoginPage() {
           setStep("s-confirm");
         }
       }
-    } else if (step === "s-dong" && dong.length < 4) {
+    } else if ((step === "s-dong" || step === "l-dong") && dong.length < 4) {
       setDong((prev) => prev + num);
-    } else if (step === "s-ho" && ho.length < 5) {
+    } else if ((step === "s-ho" || step === "l-ho") && ho.length < 5) {
       setHo((prev) => prev + num);
     }
   }
 
   function handleDelete() {
     if (isPending) return;
-    if (step === "phone" || step === "s-phone") {
+    if (step === "s-phone") {
       setPhone((prev) => prev.slice(0, -1));
     } else if (step === "pin" || step === "s-pin") {
       setPin((prev) => prev.slice(0, -1));
-    } else if (step === "s-dong") {
+    } else if (step === "s-dong" || step === "l-dong") {
       setDong((prev) => prev.slice(0, -1));
-    } else if (step === "s-ho") {
+    } else if (step === "s-ho" || step === "l-ho") {
       setHo((prev) => prev.slice(0, -1));
     }
   }
 
   function handleNext() {
     setError(null);
-    if (step === "phone") {
-      if (phone.length >= 10) setStep("pin");
+    if (step === "l-dong") {
+      if (!dong.trim()) {
+        setError(getDongLabel() + "을(를) 입력해주세요.");
+        return;
+      }
+      setStep(siteType === "village" ? "pin" : "l-ho");
+    } else if (step === "l-ho") {
+      if (ho.trim()) setStep("pin");
+      else setError(getHoLabel() + "을(를) 입력해주세요.");
     } else if (step === "s-name") {
       if (name.trim()) setStep("s-phone");
       else setError("이름을 입력해주세요.");
@@ -144,7 +152,11 @@ export default function LoginPage() {
     setError(null);
     if (mode === "login") {
       setPin("");
-      if (step === "pin") setStep("phone");
+      if (step === "pin") {
+        setStep(siteType === "village" ? "l-dong" : "l-ho");
+      } else if (step === "l-ho") {
+        setStep("l-dong");
+      }
     } else {
       if (step === "s-confirm") {
         setPin("");
@@ -163,7 +175,7 @@ export default function LoginPage() {
 
   function resetToLogin() {
     setMode("login");
-    setStep("phone");
+    setStep("l-dong");
     setPhone("");
     setPin("");
     setName("");
@@ -186,11 +198,11 @@ export default function LoginPage() {
   async function handleLogin(fullPin: string) {
     setError(null);
     const formData = new FormData();
-    formData.set("phone_number", phone);
+    formData.set("dong_ho", formatDongHo());
     formData.set("pin", fullPin);
 
     startTransition(async () => {
-      const result = await signIn(formData);
+      const result = await signInByDongHo(formData);
       if (result.success) {
         router.push("/rent");
       } else {
@@ -221,9 +233,9 @@ export default function LoginPage() {
       const result = await signUp(formData);
       if (result.success) {
         const loginData = new FormData();
-        loginData.set("phone_number", phone);
+        loginData.set("dong_ho", dongHo);
         loginData.set("pin", fullPin);
-        const loginResult = await signIn(loginData);
+        const loginResult = await signInByDongHo(loginData);
         if (loginResult.success) {
           router.push("/rent");
         } else {
@@ -263,10 +275,8 @@ export default function LoginPage() {
 
   function getTitle(): string {
     switch (step) {
-      case "phone": return "휴대폰 번호를 입력하세요";
       case "pin": return "비밀번호 4자리를 입력하세요";
-      case "s-name": return "이름을 입력하세요";
-      case "s-phone": return "휴대폰 번호를 입력하세요";
+      case "l-dong":
       case "s-dong":
         switch (siteType) {
           case "apartment": return "동을 입력하세요";
@@ -274,8 +284,11 @@ export default function LoginPage() {
           case "village": return "지번을 입력하세요";
         }
         break;
+      case "l-ho":
       case "s-ho":
         return siteType === "school" ? "반을 입력하세요" : "호수를 입력하세요";
+      case "s-name": return "이름을 입력하세요";
+      case "s-phone": return "휴대폰 번호를 입력하세요";
       case "s-pin": return "비밀번호 4자리를 설정하세요";
       case "s-confirm": return "입력한 정보를 확인해주세요";
     }
@@ -283,14 +296,16 @@ export default function LoginPage() {
   }
 
   const hasNextButton =
-    step === "phone" || step === "s-phone" || step === "s-dong" || step === "s-ho";
+    step === "l-dong" || step === "l-ho" ||
+    step === "s-phone" || step === "s-dong" || step === "s-ho";
 
   function isNextDisabled(): boolean {
     switch (step) {
-      case "phone":
       case "s-phone": return phone.length < 10;
       case "s-name": return !name.trim();
+      case "l-dong":
       case "s-dong": return !dong.trim();
+      case "l-ho":
       case "s-ho": return !ho.trim();
       default: return false;
     }
@@ -298,12 +313,13 @@ export default function LoginPage() {
 
   function getNumpadDisplay(): string {
     switch (step) {
-      case "phone": return formatPhone(phone, phone.length > 7) || "\u00A0";
       case "s-phone": return formatPhone(phone) || "\u00A0";
+      case "l-dong":
       case "s-dong":
         if (siteType === "apartment") return dong ? `${dong}동` : "___동";
         if (siteType === "school") return dong ? `${dong}학년` : "___학년";
         return "";
+      case "l-ho":
       case "s-ho":
         if (siteType === "school") return ho ? `${ho}반` : "___반";
         return ho ? `${ho}호` : "___호";
@@ -577,7 +593,7 @@ export default function LoginPage() {
         )}
 
         {/* 회원가입 / 로그인 전환 링크 */}
-        {mode === "login" && (step === "phone" || step === "pin") && (
+        {mode === "login" && (step === "l-dong" || step === "l-ho" || step === "pin") && (
           <Button
             variant="link"
             className="text-[clamp(1rem,2.5vw,1.4rem)] flex-shrink-0 py-[1vh]"

@@ -42,7 +42,7 @@ export default function AdminLoginPage() {
             <ShieldCheck className="size-8 text-primary" />
           </div>
           <CardTitle className="text-2xl">관리자 로그인</CardTitle>
-          <p className="text-base text-muted-foreground mt-1">책빌리지 관리자 전용</p>
+          <p className="text-base text-muted-foreground mt-1">관리자 전용</p>
         </CardHeader>
         <CardContent className="px-8 pb-10">
           <form onSubmit={handleSubmit} className="space-y-6">

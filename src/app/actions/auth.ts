@@ -88,6 +88,46 @@ export async function signIn(formData: FormData): Promise<ActionResult> {
   return { success: true }
 }
 
+export async function signInByDongHo(formData: FormData): Promise<ActionResult> {
+  const dongHo = String(formData.get('dong_ho') ?? '').trim()
+  const pin = String(formData.get('pin') ?? '')
+
+  if (!dongHo) {
+    return { success: false, error: '동/호수를 입력해주세요.' }
+  }
+  if (!/^\d{4}$/.test(pin)) {
+    return { success: false, error: '비밀번호는 4자리 숫자여야 합니다.' }
+  }
+
+  // 동/호수가 일치하는 주민 조회 (관리자 제외)
+  const { data: profiles } = await supabaseAdmin
+    .from('profiles')
+    .select('phone_number')
+    .eq('dong_ho', dongHo)
+    .eq('role', 'resident')
+
+  if (!profiles || profiles.length === 0) {
+    return { success: false, error: '동/호수 또는 비밀번호가 올바르지 않습니다.' }
+  }
+
+  const supabase = await createClient()
+  const password = pinToPassword(pin)
+
+  // 같은 세대에 여러 명이 있을 수 있으므로 PIN이 맞는 주민을 찾아 로그인
+  for (const profile of profiles) {
+    if (!profile.phone_number) continue
+    const { error } = await supabase.auth.signInWithPassword({
+      email: phoneToEmail(profile.phone_number),
+      password,
+    })
+    if (!error) {
+      return { success: true }
+    }
+  }
+
+  return { success: false, error: '동/호수 또는 비밀번호가 올바르지 않습니다.' }
+}
+
 export async function checkPhoneExists(phoneNumber: string): Promise<boolean> {
   const supabase = await createClient()
   const { data } = await supabase

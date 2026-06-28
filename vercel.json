@@ -2,12 +2,6 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "regions": ["icn1"],
-  "crons": [
-    {
-      "path": "/api/cron/overdue-notifications",
-      "schedule": "0 0 * * *"
-    }
-  ],
   "headers": [
     {
       "source": "/(.*)",
