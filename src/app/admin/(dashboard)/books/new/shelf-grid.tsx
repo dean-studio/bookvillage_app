@@ -78,7 +78,7 @@ type Shelf = {
 
 const FONT_SIZES = [0, 8, 10, 12, 14, 16, 18, 20, 24];
 
-const GRID_COLS = 20;
+const GRID_COLS = 26;
 const GRID_ROWS = 20;
 const CELL_SIZE = 60;
 
@@ -141,6 +141,7 @@ function DraggableItem({
   onResizeStart,
   isResizing,
   draggable = true,
+  showResizeHandle = false,
 }: {
   shelf: Shelf;
   isSelected: boolean;
@@ -149,6 +150,7 @@ function DraggableItem({
   onResizeStart: (e: React.PointerEvent) => void;
   isResizing: boolean;
   draggable?: boolean;
+  showResizeHandle?: boolean;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: shelf.id,
@@ -211,7 +213,7 @@ function DraggableItem({
         <IconComp className="size-4" style={{ color: shelf.color }} />
       )}
       <span
-        className={`truncate max-w-full px-1 ${shelf.font_size > 0 ? "" : isLabel ? "text-[10px]" : "text-xs"} ${shelf.font_bold ? "font-bold" : isLabel ? "" : "font-semibold"}`}
+        className={`max-w-full px-1 text-center break-keep leading-tight ${shelf.font_size > 0 ? "" : isLabel ? "text-[10px]" : "text-xs"} ${shelf.font_bold ? "font-bold" : isLabel ? "" : "font-semibold"}`}
         style={{
           color: shelf.color,
           ...(shelf.font_size > 0 ? { fontSize: shelf.font_size } : {}),
@@ -224,7 +226,7 @@ function DraggableItem({
           {shelf.book_count}권
         </span>
       )}
-      {isLabel && (
+      {showResizeHandle && (
         <div
           className="absolute bottom-0 right-0 w-4 h-4 cursor-se-resize z-10"
           onPointerDown={(e) => {
@@ -275,7 +277,7 @@ function ItemOverlay({ shelf }: { shelf: Shelf }) {
         <IconComp className="size-4" style={{ color: shelf.color }} />
       )}
       <span
-        className={`truncate max-w-full px-1 ${shelf.font_size > 0 ? "" : isLabel ? "text-[10px]" : "text-xs"} ${shelf.font_bold ? "font-bold" : isLabel ? "" : "font-semibold"}`}
+        className={`max-w-full px-1 text-center break-keep leading-tight ${shelf.font_size > 0 ? "" : isLabel ? "text-[10px]" : "text-xs"} ${shelf.font_bold ? "font-bold" : isLabel ? "" : "font-semibold"}`}
         style={{
           color: shelf.color,
           ...(shelf.font_size > 0 ? { fontSize: shelf.font_size } : {}),
@@ -292,7 +294,7 @@ function ItemOverlay({ shelf }: { shelf: Shelf }) {
   );
 }
 
-const COL_LABELS = ["A","B","C","D","E","F","G","H","I","J","K","L","M","N","O","P","Q","R","S","T"];
+const COL_LABELS = Array.from({ length: GRID_COLS }, (_, i) => String.fromCharCode(65 + i));
 
 export function ShelfGrid() {
   const router = useRouter();
@@ -740,6 +742,7 @@ export function ShelfGrid() {
                         onResizeStart={(e) => editMode && handleResizeStart(shelf.id, e)}
                         isResizing={editMode && resizingId === shelf.id}
                         draggable={editMode}
+                        showResizeHandle={editMode}
                       />
                     ))}
 

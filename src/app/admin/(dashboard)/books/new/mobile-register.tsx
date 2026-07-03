@@ -4,13 +4,6 @@ import { useState, useEffect, useRef, useTransition, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import {
   Camera,
   Loader2,
   AlertCircle,
@@ -50,6 +43,7 @@ type ShelfOption = {
   id: string;
   name: string;
   type: "shelf" | "label";
+  color?: string;
 };
 
 type PendingBook = {
@@ -252,6 +246,11 @@ export function MobileRegister() {
 
   async function startScanning(mode: "batch" | "single" | "duplicate" = "batch") {
     setRegisterMode(mode);
+    // 연속 등록 재진입 시 이전 대기/완료 목록 초기화
+    if (mode === "batch") {
+      setPendingBooks([]);
+      setRegisteredBooks([]);
+    }
     setScanning(true);
     setError("");
     setBookInfo(null);
@@ -322,10 +321,10 @@ export function MobileRegister() {
       const res = await fetch(`/api/books/search?isbn=${encodeURIComponent(isbn)}`);
       const data = await res.json();
       if (!res.ok || !data.title) {
+        // 도서 정보를 못 찾아도 스캔 화면을 유지하고 토스트만 표시
         setScanSearching(false);
-        setScanning(false);
-        setError(data.error || "도서 정보를 찾을 수 없습니다.");
-        setBarcode(isbn);
+        showToast(`"${isbn}" 도서 정보를 찾을 수 없습니다.\n단일 도서 등록에서 수동으로 입력해주세요.`);
+        await initScanner();
         return;
       }
 
@@ -898,18 +897,35 @@ export function MobileRegister() {
 
           <div className="space-y-1.5">
             <label className="text-sm font-medium">서재 선택</label>
-            <Select value={selectedShelf} onValueChange={(v) => setSelectedShelf(v ?? "")}>
-              <SelectTrigger className="h-12">
-                <SelectValue placeholder="서재를 선택하세요" />
-              </SelectTrigger>
-              <SelectContent>
-                {shelves.map((shelf) => (
-                  <SelectItem key={shelf.id} value={shelf.name}>
-                    {shelf.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {shelves.filter((s) => s.type !== "label").length === 0 ? (
+              <p className="text-sm text-muted-foreground py-2">
+                등록된 서재가 없습니다. 먼저 서재를 만들어주세요.
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2">
+                {shelves
+                  .filter((s) => s.type !== "label")
+                  .map((shelf) => {
+                    const active = selectedShelf === shelf.name;
+                    const color = shelf.color || "#3b82f6";
+                    return (
+                      <button
+                        key={shelf.id}
+                        type="button"
+                        onClick={() => setSelectedShelf(shelf.name)}
+                        className="min-h-12 rounded-lg border-2 px-2 py-1.5 text-sm font-medium leading-tight break-all text-center transition-colors"
+                        style={{
+                          borderColor: color,
+                          backgroundColor: active ? color : "transparent",
+                          color: active ? "#fff" : color,
+                        }}
+                      >
+                        {shelf.name}
+                      </button>
+                    );
+                  })}
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -980,18 +996,35 @@ export function MobileRegister() {
       {/* Step 1: 서재 선택 */}
       <div className="w-full max-w-sm space-y-2">
         <label className="text-sm font-medium">서재 선택 *</label>
-        <Select value={selectedShelf} onValueChange={(v) => setSelectedShelf(v ?? "")}>
-          <SelectTrigger className="h-12">
-            <SelectValue placeholder="서재를 먼저 선택하세요" />
-          </SelectTrigger>
-          <SelectContent>
-            {shelves.map((shelf) => (
-              <SelectItem key={shelf.id} value={shelf.name}>
-                {shelf.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        {shelves.filter((s) => s.type !== "label").length === 0 ? (
+          <p className="text-sm text-muted-foreground py-2">
+            등록된 서재가 없습니다. 먼저 서재를 만들어주세요.
+          </p>
+        ) : (
+          <div className="grid grid-cols-3 gap-2">
+            {shelves
+              .filter((s) => s.type !== "label")
+              .map((shelf) => {
+                const active = selectedShelf === shelf.name;
+                const color = shelf.color || "#3b82f6";
+                return (
+                  <button
+                    key={shelf.id}
+                    type="button"
+                    onClick={() => setSelectedShelf(shelf.name)}
+                    className="min-h-12 rounded-lg border-2 px-2 py-1.5 text-sm font-medium leading-tight break-all text-center transition-colors"
+                    style={{
+                      borderColor: color,
+                      backgroundColor: active ? color : "transparent",
+                      color: active ? "#fff" : color,
+                    }}
+                  >
+                    {shelf.name}
+                  </button>
+                );
+              })}
+          </div>
+        )}
         <div className="space-y-1.5">
           <label className="text-sm font-medium">위치 상세 (선택)</label>
           <Input

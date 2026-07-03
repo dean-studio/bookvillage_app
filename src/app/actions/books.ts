@@ -67,10 +67,23 @@ export async function getBookById(bookId: string) {
     .eq('book_id', bookId)
     .single()
 
+  // 등록자 이름 조회
+  let createdByName: string | null = null
+  const createdById = (book as { created_by?: string | null }).created_by
+  if (createdById) {
+    const { data: creator } = await supabaseAdmin
+      .from('profiles')
+      .select('name')
+      .eq('id', createdById)
+      .maybeSingle()
+    createdByName = (creator as { name: string } | null)?.name ?? null
+  }
+
   return {
     ...(book as NonNullable<typeof book>),
     avg_rating: (ratings as { avg_rating: number; review_count: number } | null)?.avg_rating ?? null,
     review_count: (ratings as { avg_rating: number; review_count: number } | null)?.review_count ?? 0,
+    created_by_name: createdByName,
   }
 }
 
@@ -128,7 +141,7 @@ export async function createBook(formData: FormData): Promise<ActionResult<Book>
   if (deletedBook) {
     const { data, error } = await supabaseAdmin
       .from('books')
-      .update({ ...parsed.data, is_deleted: false, is_available: true })
+      .update({ ...parsed.data, is_deleted: false, is_available: true, created_by: user.id })
       .eq('id', deletedBook.id)
       .select()
       .single()
@@ -142,7 +155,7 @@ export async function createBook(formData: FormData): Promise<ActionResult<Book>
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('books')
-    .insert(parsed.data)
+    .insert({ ...parsed.data, created_by: user.id })
     .select()
     .single()
 
@@ -190,6 +203,83 @@ export async function updateBook(bookId: string, formData: FormData): Promise<Ac
   }
 
   return { success: true, data }
+}
+
+const SELF_BARCODE_PREFIX = 'BV'
+const SELF_BARCODE_PAD = 6
+
+export async function generateBarcodes(
+  count: number
+): Promise<ActionResult<{ codes: string[] }>> {
+  const user = await getCurrentUser()
+  if (!user || user.role !== 'admin') {
+    return { success: false, error: '권한이 없습니다.' }
+  }
+
+  const n = Math.min(Math.max(Math.floor(count) || 0, 1), 200)
+  const supabase = await createClient()
+
+  // 기존 자체 바코드(BV...) 중 최대 일련번호 조회 (소프트삭제 포함 — 충돌 방지)
+  const { data } = await supabase
+    .from('books')
+    .select('barcode')
+    .like('barcode', `${SELF_BARCODE_PREFIX}%`)
+
+  let maxNum = 0
+  for (const row of data ?? []) {
+    const m = String(row.barcode).match(
+      new RegExp(`^${SELF_BARCODE_PREFIX}(\\d+)$`)
+    )
+    if (m) {
+      const num = parseInt(m[1], 10)
+      if (num > maxNum) maxNum = num
+    }
+  }
+
+  const codes: string[] = []
+  for (let i = 1; i <= n; i++) {
+    codes.push(
+      `${SELF_BARCODE_PREFIX}${String(maxNum + i).padStart(SELF_BARCODE_PAD, '0')}`
+    )
+  }
+
+  return { success: true, data: { codes } }
+}
+
+export async function updateBooksLocation(
+  bookIds: string[],
+  locationGroup: string,
+  locationDetail: string
+): Promise<ActionResult<{ count: number }>> {
+  const user = await getCurrentUser()
+  if (!user || user.role !== 'admin') {
+    return { success: false, error: '권한이 없습니다.' }
+  }
+
+  if (!bookIds || bookIds.length === 0) {
+    return { success: false, error: '선택된 도서가 없습니다.' }
+  }
+  if (!locationGroup.trim()) {
+    return { success: false, error: '서가 위치를 선택해주세요.' }
+  }
+
+  const supabase = await createClient()
+  const { error, count } = await supabase
+    .from('books')
+    .update(
+      {
+        location_group: locationGroup.trim(),
+        location_detail: locationDetail.trim(),
+      },
+      { count: 'exact' }
+    )
+    .in('id', bookIds)
+
+  if (error) {
+    return { success: false, error: '서가 위치 일괄 수정에 실패했습니다.' }
+  }
+
+  return { success: true, data: { count: count ?? bookIds.length } }
 }
 
 export async function getBookDeletions(page = 1, limit = 20) {

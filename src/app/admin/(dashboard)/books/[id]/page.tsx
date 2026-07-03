@@ -30,7 +30,7 @@ import { getBookById, setBookFeatured, unsetBookFeatured } from "@/app/actions/b
 import { getBookRentals } from "@/app/actions/rentals";
 import type { Book } from "@/types";
 
-type BookDetail = Book & { avg_rating: number | null; review_count: number; featured_until?: string | null };
+type BookDetail = Book & { avg_rating: number | null; review_count: number; featured_until?: string | null; created_by_name?: string | null };
 type RentalRecord = Awaited<ReturnType<typeof getBookRentals>>[number] & { user_id?: string };
 
 export default function AdminBookDetailPage() {
@@ -141,6 +141,20 @@ export default function AdminBookDetailPage() {
                 {book.location_group}{book.location_detail ? ` > ${book.location_detail}` : ""}
               </p>
             </div>
+            {book.created_at && (
+              <div>
+                <p className="text-muted-foreground">등록일</p>
+                <p>
+                  {new Date(book.created_at).toLocaleDateString("ko-KR")}
+                </p>
+              </div>
+            )}
+            {book.created_by_name && (
+              <div>
+                <p className="text-muted-foreground">등록자</p>
+                <p className="font-medium">{book.created_by_name}</p>
+              </div>
+            )}
           </div>
 
           {book.description && (

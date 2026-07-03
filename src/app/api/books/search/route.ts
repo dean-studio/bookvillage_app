@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { searchBookByISBN } from '@/lib/kakao'
+import { searchBookByISBN, searchBooksByTitle } from '@/lib/kakao'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -20,9 +20,39 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: '권한이 없습니다.' }, { status: 403 })
   }
 
+  // 도서명(제목) 검색 → 여러 결과 목록 반환
+  const title = request.nextUrl.searchParams.get('title')
+  if (title) {
+    try {
+      const books = await searchBooksByTitle(title)
+      return NextResponse.json({
+        results: books.map((book) => ({
+          title: book.title,
+          author: book.authors.join(', '),
+          publisher: book.publisher,
+          cover_image: book.thumbnail,
+          isbn: book.isbn,
+          description: book.contents,
+          translators: book.translators.join(', '),
+          published_at: book.datetime ? book.datetime.slice(0, 10) : '',
+          price: book.price,
+          sale_price: book.sale_price,
+          category: book.category,
+          kakao_url: book.url,
+          sale_status: book.status,
+        })),
+      })
+    } catch {
+      return NextResponse.json(
+        { error: '카카오 API 연동 중 오류가 발생했습니다.' },
+        { status: 500 }
+      )
+    }
+  }
+
   const isbn = request.nextUrl.searchParams.get('isbn')
   if (!isbn) {
-    return NextResponse.json({ error: 'ISBN을 입력해주세요.' }, { status: 400 })
+    return NextResponse.json({ error: 'ISBN 또는 도서명을 입력해주세요.' }, { status: 400 })
   }
 
   try {

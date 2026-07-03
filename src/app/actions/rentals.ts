@@ -115,7 +115,7 @@ export async function checkoutBook(formData: FormData): Promise<ActionResult<Che
   // 대출 생성
   const { data: rental, error } = await supabase
     .from('rentals')
-    .insert({ book_id: book.id, user_id, due_date: dueDateStr })
+    .insert({ book_id: book.id, user_id, due_date: dueDateStr, checked_out_by: admin.id })
     .select('id, rented_at, due_date')
     .single()
 

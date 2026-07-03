@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -12,14 +13,17 @@ import {
   ChevronRight,
   Clock,
   FileText,
+  ShieldCheck,
 } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 import { getMyPageData } from "@/app/actions/mypage";
 import { getPublicSettings } from "@/app/actions/settings";
+import { PrivacyTermsModal } from "@/components/privacy-terms-modal";
 import { useQuery } from "@tanstack/react-query";
 
 export default function MyPage() {
   const router = useRouter();
+  const [termsOpen, setTermsOpen] = useState(false);
 
   const { data, isLoading } = useQuery({
     queryKey: ["mypage"],
@@ -206,6 +210,16 @@ export default function MyPage() {
           </a>
         )}
 
+        {/* 개인정보 처리방침 */}
+        <button
+          onClick={() => setTermsOpen(true)}
+          className="w-full flex items-center gap-[clamp(0.8rem,2vw,1.2rem)] px-[3vw] py-[clamp(1.2rem,2.5vh,1.8rem)] border-b hover:bg-muted/50 active:bg-muted transition-colors"
+        >
+          <ShieldCheck className="size-[clamp(1.3rem,3vw,1.6rem)] text-muted-foreground" />
+          <span className="text-[clamp(1.1rem,2.5vw,1.4rem)] font-medium flex-1 text-left">개인정보 처리방침</span>
+          <ChevronRight className="size-[clamp(1.1rem,2.5vw,1.4rem)] text-muted-foreground shrink-0" />
+        </button>
+
         {/* 로그아웃 */}
         <div className="px-[3vw] pt-[3vh]">
           <button
@@ -217,6 +231,12 @@ export default function MyPage() {
           </button>
         </div>
       </main>
+
+      <PrivacyTermsModal
+        open={termsOpen}
+        orgName={publicSettings?.apartment_name}
+        onClose={() => setTermsOpen(false)}
+      />
     </div>
   );
 }

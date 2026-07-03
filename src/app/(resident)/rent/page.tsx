@@ -84,6 +84,8 @@ export default function RentPage() {
   const [checkoutError, setCheckoutError] = useState("");
   const [cameraBlocked, setCameraBlocked] = useState(false);
   const [rollingIdx, setRollingIdx] = useState(0);
+  const [readerMode, setReaderMode] = useState(false);
+  const readerInputRef = useRef<HTMLInputElement>(null);
 
   const { data: popularSearches = [] } = useQuery<PopularSearch[]>({
     queryKey: ["popularSearches"],
@@ -107,6 +109,15 @@ export default function RentPage() {
     }, 2500);
     return () => clearInterval(timer);
   }, [popularSearches.length]);
+
+  // 리더기 모드 진입 시 input 자동 포커스
+  useEffect(() => {
+    if (readerMode) {
+      setBarcode("");
+      setError("");
+      setTimeout(() => readerInputRef.current?.focus(), 50);
+    }
+  }, [readerMode]);
 
   function handleLookup(barcodeValue?: string) {
     const code = barcodeValue || barcode.trim();
@@ -357,20 +368,75 @@ export default function RentPage() {
               </div>
             </div>
 
-            <div className="flex-1 flex items-center justify-center">
-              <button
-                onClick={startScanning}
-                className="w-full max-w-md flex flex-col items-center justify-center gap-[1.5vh] rounded-xl border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 active:scale-[0.98] transition-all cursor-pointer py-[clamp(3rem,8vh,6rem)] px-6"
-              >
-                <Camera className="size-[clamp(4rem,10vw,6rem)] text-primary" />
-                <span className="text-[clamp(1.4rem,3.5vw,2rem)] font-bold text-primary">
-                  바코드 스캔
-                </span>
-                <span className="text-[clamp(0.95rem,2.2vw,1.2rem)] text-muted-foreground">
-                  터치하여 카메라로 바코드를 스캔하세요
-                </span>
-              </button>
-            </div>
+            {readerMode ? (
+              /* 리더기 모드: input */
+              <div className="flex-1 flex flex-col items-center justify-center gap-[2vh]">
+                <div className="w-full max-w-md rounded-2xl border-2 border-sky-500 bg-background p-[clamp(1.2rem,4vw,2rem)] space-y-[2vh]">
+                  <div className="flex flex-col items-center gap-[1vh]">
+                    <ScanBarcode className="size-[clamp(3rem,10vw,4.5rem)] text-sky-600 dark:text-sky-400" />
+                    <p className="text-[clamp(1.1rem,3vw,1.5rem)] font-bold text-center">
+                      리더기로 바코드를 스캔하세요
+                    </p>
+                  </div>
+                  <Input
+                    ref={readerInputRef}
+                    value={barcode}
+                    onChange={(e) => setBarcode(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleLookup(); }}
+                    placeholder="바코드 스캔 / 입력"
+                    className="h-[clamp(3.5rem,9vh,5rem)] text-center !text-[clamp(1.4rem,4vw,2rem)]"
+                    inputMode="numeric"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      className="flex-1 h-[clamp(3.2rem,7vh,4rem)] text-[clamp(1.1rem,2.5vw,1.4rem)]"
+                      onClick={() => { setReaderMode(false); setBarcode(""); }}
+                    >
+                      취소
+                    </Button>
+                    <Button
+                      className="flex-1 h-[clamp(3.2rem,7vh,4rem)] text-[clamp(1.1rem,2.5vw,1.4rem)] font-semibold"
+                      onClick={() => handleLookup()}
+                      disabled={!barcode.trim() || isLoading}
+                    >
+                      조회
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              /* 스캔 방식 선택: 큰 버튼 2개 (모바일 세로 스택) */
+              <div className="flex-1 flex flex-col items-stretch justify-center gap-[clamp(1rem,2.5vh,1.5rem)] w-full max-w-md mx-auto">
+                {/* 카메라 스캔 */}
+                <button
+                  onClick={startScanning}
+                  className="flex-1 flex flex-col items-center justify-center gap-[1.5vh] rounded-2xl border-2 border-dashed border-primary/40 bg-primary/5 hover:bg-primary/10 active:scale-[0.98] transition-all cursor-pointer p-6"
+                >
+                  <Camera className="size-[clamp(3.5rem,14vw,6rem)] text-primary" />
+                  <span className="text-[clamp(1.5rem,5vw,2.2rem)] font-bold text-primary">
+                    카메라 스캔
+                  </span>
+                  <span className="text-[clamp(0.95rem,2.5vw,1.2rem)] text-muted-foreground text-center">
+                    휴대폰 카메라로 바코드 스캔
+                  </span>
+                </button>
+                {/* 리더기 스캔 */}
+                <button
+                  onClick={() => setReaderMode(true)}
+                  className="flex-1 flex flex-col items-center justify-center gap-[1.5vh] rounded-2xl border-2 border-dashed border-sky-500/50 bg-sky-500/10 hover:bg-sky-500/20 active:scale-[0.98] transition-all cursor-pointer p-6"
+                >
+                  <ScanBarcode className="size-[clamp(3.5rem,14vw,6rem)] text-sky-600 dark:text-sky-400" />
+                  <span className="text-[clamp(1.5rem,5vw,2.2rem)] font-bold text-sky-600 dark:text-sky-400">
+                    리더기 스캔
+                  </span>
+                  <span className="text-[clamp(0.95rem,2.5vw,1.2rem)] text-muted-foreground text-center">
+                    바코드 리더기로 스캔
+                  </span>
+                </button>
+              </div>
+            )}
           </div>
         ) : null}
 
@@ -675,32 +741,6 @@ export default function RentPage() {
             >
               <ArrowLeft className="size-[clamp(1.2rem,2.5vw,1.5rem)] mr-2" />
               뒤로 가기
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* 하단 바코드 입력 - 네비바 바로 위 고정 */}
-      {!book && !scanning && (
-        <div className="shrink-0 border-t bg-background px-[clamp(1rem,3vw,2rem)] py-2.5 mb-[10px]">
-          <div className="flex gap-2">
-            <Input
-              placeholder="바코드 번호 직접 입력"
-              value={barcode}
-              onChange={(e) => setBarcode(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleLookup()}
-              className="h-[clamp(3rem,6vh,4rem)] text-[clamp(1rem,2.2vw,1.4rem)]"
-            />
-            <Button
-              onClick={() => handleLookup()}
-              disabled={!barcode.trim() || isLoading}
-              className="h-[clamp(3rem,6vh,4rem)] px-[clamp(1rem,3vw,1.5rem)]"
-            >
-              {isLoading ? (
-                <Loader2 className="size-[clamp(1.2rem,2.5vw,1.5rem)] animate-spin" />
-              ) : (
-                <ScanBarcode className="size-[clamp(1.2rem,2.5vw,1.5rem)]" />
-              )}
             </Button>
           </div>
         </div>

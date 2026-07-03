@@ -37,6 +37,47 @@ interface KakaoBookSearchResponse {
   }
 }
 
+function mapDoc(doc: KakaoBookSearchResponse['documents'][number]): KakaoBookResult {
+  return {
+    title: doc.title,
+    authors: doc.authors,
+    publisher: doc.publisher,
+    thumbnail: doc.thumbnail,
+    isbn: doc.isbn,
+    contents: doc.contents,
+    translators: doc.translators,
+    datetime: doc.datetime,
+    price: doc.price,
+    sale_price: doc.sale_price,
+    category: doc.category,
+    url: doc.url,
+    status: doc.status,
+  }
+}
+
+// 도서명(제목)으로 검색 → 여러 결과 반환
+export async function searchBooksByTitle(title: string): Promise<KakaoBookResult[]> {
+  const apiKey = process.env.KAKAO_REST_API_KEY
+  if (!apiKey) {
+    throw new Error('KAKAO_REST_API_KEY 환경변수가 설정되지 않았습니다.')
+  }
+
+  const res = await fetch(
+    `https://dapi.kakao.com/v3/search/book?query=${encodeURIComponent(title)}&target=title&size=20`,
+    {
+      headers: { Authorization: `KakaoAK ${apiKey}` },
+      next: { revalidate: 3600 },
+    }
+  )
+
+  if (!res.ok) {
+    throw new Error(`카카오 API 오류: ${res.status}`)
+  }
+
+  const data: KakaoBookSearchResponse = await res.json()
+  return data.documents.map(mapDoc)
+}
+
 export async function searchBookByISBN(isbn: string): Promise<KakaoBookResult | null> {
   const apiKey = process.env.KAKAO_REST_API_KEY
   if (!apiKey) {

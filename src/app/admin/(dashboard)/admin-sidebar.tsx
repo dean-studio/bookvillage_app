@@ -3,9 +3,9 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { adminSignOut } from "@/app/actions/auth";
+import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
 
 type NavItem = { type?: "link"; href: string; label: string; icon: typeof LayoutDashboard; exact?: boolean } | { type: "divider" };
@@ -19,6 +19,7 @@ const navItems: NavItem[] = [
   { href: "/admin/books", label: "전체 도서", icon: Library, exact: true },
   { href: "/admin/rentals", label: "대여중 도서", icon: BookCheck, exact: true },
   { href: "/admin/books/new", label: "도서 등록", icon: BookPlus },
+  { href: "/admin/books/barcodes", label: "바코드 생성", icon: Barcode },
   { href: "/admin/checkout", label: "대출", icon: BookCheck },
   { type: "divider" },
   { href: "/admin/return", label: "반납", icon: BookDown },
@@ -35,7 +36,14 @@ const COLLAPSED_PATHS = ["/admin/books/new"];
 
 export function AdminSidebar() {
   const [open, setOpen] = useState(false);
+  const [adminName, setAdminName] = useState<string>("");
   const pathname = usePathname();
+
+  useEffect(() => {
+    getCurrentUser().then((u) => {
+      if (u?.name) setAdminName(u.name);
+    });
+  }, []);
 
   const forceCollapsed = COLLAPSED_PATHS.some(
     (p) => pathname === p || pathname.startsWith(p + "/")
@@ -92,7 +100,7 @@ export function AdminSidebar() {
       {/* 햄버거 바: 모바일 항상 + 데스크톱에서 forceCollapsed일 때 (좁은 아이콘 바) */}
       <div
         className={cn(
-          "flex items-center justify-between border-b p-3",
+          "flex items-center justify-between border-b p-3 print:hidden",
           forceCollapsed
             ? "flex md:w-12 md:shrink-0 md:flex-col md:items-center md:justify-start md:border-b-0 md:border-r md:p-2 md:pt-4"
             : "flex md:hidden"
@@ -118,7 +126,10 @@ export function AdminSidebar() {
           />
           <nav className="absolute left-0 top-0 bottom-0 w-64 bg-background border-r flex flex-col animate-in slide-in-from-left duration-200">
             <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="font-bold text-lg">관리자</h2>
+              <div className="flex items-center gap-2 min-w-0">
+                <UserCircle className="size-5 text-primary shrink-0" />
+                <span className="font-bold text-lg truncate">{adminName || "관리자"}</span>
+              </div>
               <Button variant="ghost" size="icon" onClick={() => setOpen(false)}>
                 <X className="size-5" />
               </Button>
@@ -130,13 +141,19 @@ export function AdminSidebar() {
 
       {/* 데스크톱 고정 사이드바: forceCollapsed가 아닐 때만 */}
       {!forceCollapsed && (
-        <nav className="hidden md:flex md:flex-col md:w-60 border-r bg-muted/30 shrink-0">
+        <nav className="hidden md:flex md:flex-col md:w-60 border-r bg-muted/30 shrink-0 print:!hidden">
           <div className="flex items-center justify-between px-4 py-4">
-            <h2 className="font-bold text-lg">관리자</h2>
+            <div className="flex items-center gap-2 min-w-0">
+              <UserCircle className="size-5 text-primary shrink-0" />
+              <div className="min-w-0">
+                <p className="font-bold text-base truncate leading-tight">{adminName || "관리자"}</p>
+                {adminName && <p className="text-xs text-muted-foreground leading-tight">관리자</p>}
+              </div>
+            </div>
             <form action={adminSignOut}>
               <button
                 type="submit"
-                className="flex items-center gap-1.5 text-base text-muted-foreground hover:text-foreground transition-colors"
+                className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors shrink-0"
               >
                 <LogOut className="size-4" />
                 로그아웃

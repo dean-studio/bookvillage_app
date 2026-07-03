@@ -30,7 +30,8 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { getShelfBooks } from "@/app/actions/shelves";
-import { createBook, updateBook, deleteBook, checkBarcodeExists, getBookRentalCount } from "@/app/actions/books";
+import { createBook, updateBook, deleteBook, checkBarcodeExists, getBookRentalCount, generateBarcodes } from "@/app/actions/books";
+import { getCurrentUser } from "@/app/actions/auth";
 import { uploadBookCoverImage } from "@/lib/storage";
 
 interface BookInfo {
@@ -89,13 +90,54 @@ export default function ShelfBooksPage() {
   // Hybrid barcode
   const [duplicateDetected, setDuplicateDetected] = useState(false);
   const [customBarcode, setCustomBarcode] = useState("");
+  // 자체 바코드 자동 검색 결과: null(미확인) | 'available' | 'taken' | 'checking'
+  const [barcodeCheck, setBarcodeCheck] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const [barcodeCheckTitle, setBarcodeCheckTitle] = useState("");
+
+  // 등록 확인 다이얼로그
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmBarcode, setConfirmBarcode] = useState("");
+
+  // 로그인 사서 이름
+  const [adminName, setAdminName] = useState("");
+  useEffect(() => {
+    getCurrentUser().then((u) => { if (u?.name) setAdminName(u.name); });
+  }, []);
 
   // Manual entry mode (ISBN 없는 도서)
   const [manualEntryMode, setManualEntryMode] = useState(false);
 
+  // 자체 바코드 입력 시 디바운스로 중복 자동 검색 (수동/중복 모드)
+  useEffect(() => {
+    if (!manualEntryMode && !duplicateDetected) return;
+    const raw = customBarcode.trim();
+    if (!raw) { setBarcodeCheck("idle"); setBarcodeCheckTitle(""); return; }
+    setBarcodeCheck("checking");
+    const t = setTimeout(async () => {
+      const code = normalizeSelfBarcode(raw);
+      const existing = await checkBarcodeExists(code);
+      if (existing.exists) {
+        setBarcodeCheck("taken");
+        setBarcodeCheckTitle(existing.book?.title || "");
+      } else {
+        setBarcodeCheck("available");
+        setBarcodeCheckTitle("");
+      }
+    }, 500);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [customBarcode, manualEntryMode, duplicateDetected]);
+
   // Image upload
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // 도서명으로 카카오 검색
+  const [titleQuery, setTitleQuery] = useState("");
+  const [titleResults, setTitleResults] = useState<BookInfo[]>([]);
+  const [titleSearchOpen, setTitleSearchOpen] = useState(false);
+  const [isTitleSearching, startTitleSearch] = useTransition();
+  const [titleSearchError, setTitleSearchError] = useState("");
 
   // Mobile scanner
   const [scanning, setScanning] = useState(false);
@@ -245,15 +287,43 @@ export default function ShelfBooksPage() {
   }
 
   // --- Register ---
+  // 1단계: 검증 + 최종 바코드 확정 → 확인 다이얼로그 열기
   function handleRegister() {
     if (!bookInfo) return;
     if (!bookInfo.title.trim()) {
       setRegError("도서명을 입력해주세요.");
       return;
     }
-    const finalBarcode = manualEntryMode ? customBarcode.trim() : (duplicateDetected ? customBarcode.trim() : barcode.trim());
-    if ((manualEntryMode || duplicateDetected) && !finalBarcode) return;
     setRegError("");
+    startRegister(async () => {
+      // 자체 바코드 입력값이 있으면 정규화(50 → BV000050), 없으면 자동 발급
+      const rawCustom = (manualEntryMode || duplicateDetected) ? customBarcode.trim() : barcode.trim();
+      let finalBarcode = rawCustom ? normalizeSelfBarcode(rawCustom) : "";
+      if (!finalBarcode) {
+        const gen = await generateBarcodes(1);
+        if (gen.success && gen.data?.codes[0]) {
+          finalBarcode = gen.data.codes[0];
+        } else {
+          setRegError("바코드 자동 생성에 실패했습니다.");
+          return;
+        }
+      }
+      // 중복 확인
+      const existing = await checkBarcodeExists(finalBarcode);
+      if (existing.exists) {
+        setRegError(`이미 사용 중인 바코드입니다: ${finalBarcode} (${existing.book?.title || ""})`);
+        return;
+      }
+      setConfirmBarcode(finalBarcode);
+      setConfirmOpen(true);
+    });
+  }
+
+  // 2단계: 확인 후 실제 등록
+  function doRegister() {
+    if (!bookInfo) return;
+    const finalBarcode = confirmBarcode;
+    setConfirmOpen(false);
     startRegister(async () => {
       const formData = new FormData();
       formData.set("barcode", finalBarcode);
@@ -286,6 +356,9 @@ export default function ShelfBooksPage() {
       setRentalDays("");
       setDuplicateDetected(false);
       setCustomBarcode("");
+      setBarcodeCheck("idle");
+      setBarcodeCheckTitle("");
+      setConfirmBarcode("");
       loadBooks();
       setTimeout(() => setRegSuccess(false), 2000);
     });
@@ -307,14 +380,45 @@ export default function ShelfBooksPage() {
     setDuplicateDetected(false);
   }
 
-  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !bookInfo) return;
+  // 입력값을 자체 바코드 형식(BV000050)으로 정규화. 숫자만 입력하면 BV+6자리
+  function normalizeSelfBarcode(input: string): string {
+    const s = input.trim();
+    if (!s) return "";
+    if (/^\d+$/.test(s)) {
+      return `BV${s.padStart(6, "0")}`;
+    }
+    // BV50, bv50 등 → BV000050
+    const m = s.match(/^BV0*(\d+)$/i);
+    if (m) return `BV${m[1].padStart(6, "0")}`;
+    return s.toUpperCase();
+  }
+
+  // 자체 바코드 입력값으로 중복 여부 자동 검색
+  async function checkSelfBarcode(rawValue: string) {
+    const code = normalizeSelfBarcode(rawValue);
+    if (!code) {
+      setBarcodeCheck("idle");
+      setBarcodeCheckTitle("");
+      return;
+    }
+    setBarcodeCheck("checking");
+    const existing = await checkBarcodeExists(code);
+    if (existing.exists) {
+      setBarcodeCheck("taken");
+      setBarcodeCheckTitle(existing.book?.title || "");
+    } else {
+      setBarcodeCheck("available");
+      setBarcodeCheckTitle("");
+    }
+  }
+
+  async function uploadCoverFile(file: File) {
+    if (!bookInfo) return;
     setIsUploading(true);
     try {
       const url = await uploadBookCoverImage(file);
       if (url) {
-        setBookInfo({ ...bookInfo, cover_image: url });
+        setBookInfo((prev) => (prev ? { ...prev, cover_image: url } : prev));
       } else {
         setRegError("이미지 업로드에 실패했습니다.");
       }
@@ -322,8 +426,59 @@ export default function ShelfBooksPage() {
       setRegError("이미지 업로드 중 오류가 발생했습니다.");
     } finally {
       setIsUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
     }
+  }
+
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await uploadCoverFile(file);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
+
+  // 표지 영역에 클립보드 이미지 붙여넣기(Cmd/Ctrl+V)
+  async function handleCoverPaste(e: React.ClipboardEvent) {
+    const item = Array.from(e.clipboardData.items).find((it) => it.type.startsWith("image/"));
+    if (!item) return;
+    e.preventDefault();
+    const file = item.getAsFile();
+    if (file) await uploadCoverFile(file);
+  }
+
+  // 도서명으로 카카오 검색
+  function handleTitleSearch() {
+    const q = titleQuery.trim();
+    if (!q) return;
+    setTitleSearchError("");
+    startTitleSearch(async () => {
+      try {
+        const res = await fetch(`/api/books/search?title=${encodeURIComponent(q)}`);
+        const data = await res.json();
+        if (!res.ok) {
+          setTitleSearchError(data.error || "검색에 실패했습니다.");
+          return;
+        }
+        setTitleResults((data.results || []) as BookInfo[]);
+        if (!data.results || data.results.length === 0) {
+          setTitleSearchError("검색 결과가 없습니다.");
+        }
+      } catch {
+        setTitleSearchError("검색 중 오류가 발생했습니다.");
+      }
+    });
+  }
+
+  // 검색 결과 선택 → 폼에 채우기 (바코드는 등록 시 자동 발급)
+  function selectSearchResult(book: BookInfo) {
+    setManualEntryMode(true);
+    setDuplicateDetected(false);
+    setBarcode("");
+    setCustomBarcode("");
+    setBookInfo(book);
+    setTitleSearchOpen(false);
+    setTitleResults([]);
+    setTitleQuery("");
+    setRegError("");
   }
 
   function resetRegistration() {
@@ -496,18 +651,42 @@ export default function ShelfBooksPage() {
                         수동 등록 모드
                       </p>
                       <p className="text-xs text-blue-700 dark:text-blue-300">
-                        ISBN이 없는 도서입니다. 자체 바코드를 붙이고 번호를 입력해주세요.
+                        숫자만 입력하면 자동으로 BV 형식이 됩니다 (예: 50 → BV000050). 비워두면 자동 발급됩니다.
                       </p>
                     </div>
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-sm font-medium">자체 바코드 *</label>
+                    <label className="text-sm font-medium">자체 바코드</label>
                     <Input
-                      placeholder="자체 바코드 번호 입력"
+                      placeholder="예: 50 (숫자만 입력)"
                       value={customBarcode}
-                      onChange={(e) => setCustomBarcode(e.target.value)}
+                      onChange={(e) => { setCustomBarcode(e.target.value); setBarcodeCheck("idle"); }}
+                      onBlur={() => {
+                        const normalized = normalizeSelfBarcode(customBarcode);
+                        if (normalized) {
+                          setCustomBarcode(normalized);
+                          checkSelfBarcode(normalized);
+                        }
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          const normalized = normalizeSelfBarcode(customBarcode);
+                          if (normalized) {
+                            setCustomBarcode(normalized);
+                            checkSelfBarcode(normalized);
+                          }
+                        }
+                      }}
                       className="h-12"
                     />
+                    {customBarcode.trim() && (
+                      <div className="flex items-center gap-2 text-sm">
+                        <span className="text-muted-foreground">최종: <b className="font-mono text-foreground">{normalizeSelfBarcode(customBarcode)}</b></span>
+                        {barcodeCheck === "checking" && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                        {barcodeCheck === "available" && <span className="text-green-600 font-medium">✓ 사용 가능</span>}
+                        {barcodeCheck === "taken" && <span className="text-destructive font-medium">✗ 이미 사용 중{barcodeCheckTitle ? ` (${barcodeCheckTitle})` : ""}</span>}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
@@ -538,7 +717,12 @@ export default function ShelfBooksPage() {
               )}
 
               {/* Cover image */}
-              <div className="flex flex-col items-center gap-2">
+              <div
+                className="flex flex-col items-center gap-2 outline-none"
+                tabIndex={0}
+                onPaste={handleCoverPaste}
+                title="이미지를 복사한 뒤 여기를 클릭하고 Cmd/Ctrl+V 로 붙여넣기"
+              >
                 {bookInfo.cover_image ? (
                   <div className="relative">
                     <img src={bookInfo.cover_image} alt={bookInfo.title} className="w-24 h-32 object-cover rounded shadow" />
@@ -579,6 +763,7 @@ export default function ShelfBooksPage() {
                     표지 변경
                   </Button>
                 )}
+                <span className="text-[10px] text-muted-foreground text-center">클릭 후 붙여넣기(⌘V) 가능</span>
               </div>
 
               <div className="space-y-3">
@@ -678,7 +863,7 @@ export default function ShelfBooksPage() {
               size="lg"
               className="w-full h-14 text-lg shadow-lg"
               onClick={handleRegister}
-              disabled={isRegistering || ((duplicateDetected || manualEntryMode) && !customBarcode.trim()) || !bookInfo?.title.trim()}
+              disabled={isRegistering || !bookInfo?.title.trim()}
             >
               {isRegistering ? (
                 <Loader2 className="size-5 mr-2 animate-spin" />
@@ -849,10 +1034,16 @@ export default function ShelfBooksPage() {
                 </Button>
               </div>
             </div>
-            <Button variant="outline" onClick={startManualEntry}>
-              <Pencil className="size-4 mr-1" />
-              ISBN 없이 수동 입력
+            <Button variant="outline" onClick={() => { setTitleSearchOpen(true); setTitleSearchError(""); setTitleResults([]); setTitleQuery(""); }}>
+              <Search className="size-4 mr-1" />
+              도서명으로 검색
             </Button>
+            <Link href={`/admin/books/shelf/${encodeURIComponent(shelfName)}/manual`}>
+              <Button>
+                <Pencil className="size-4 mr-1" />
+                자체 등록 (전용 페이지)
+              </Button>
+            </Link>
           </div>
 
           {manualEntryMode && (
@@ -969,14 +1160,44 @@ export default function ShelfBooksPage() {
                   </div>
                   {manualEntryMode && (
                     <div>
-                      <label className="text-xs font-semibold text-blue-600">자체 바코드 *</label>
-                      <Input placeholder="자체 바코드" value={customBarcode} onChange={(e) => setCustomBarcode(e.target.value)} className="h-8 text-sm" />
+                      <label className="text-xs font-semibold text-blue-600">자체 바코드</label>
+                      <Input
+                        placeholder="예: 20 → BV000020"
+                        value={customBarcode}
+                        onChange={(e) => setCustomBarcode(e.target.value)}
+                        onBlur={() => { const n = normalizeSelfBarcode(customBarcode); if (n) setCustomBarcode(n); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const n = normalizeSelfBarcode(customBarcode); if (n) setCustomBarcode(n); } }}
+                        className="h-8 text-sm"
+                      />
+                      {customBarcode.trim() && (
+                        <p className="text-[11px] mt-0.5 flex items-center gap-1">
+                          <span className="text-muted-foreground">→ <b className="font-mono text-foreground">{normalizeSelfBarcode(customBarcode)}</b></span>
+                          {barcodeCheck === "checking" && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+                          {barcodeCheck === "available" && <span className="text-green-600">✓ 사용가능</span>}
+                          {barcodeCheck === "taken" && <span className="text-destructive">✗ 사용중</span>}
+                        </p>
+                      )}
                     </div>
                   )}
                   {duplicateDetected && (
                     <div>
                       <label className="text-xs font-semibold text-amber-600">자체 바코드</label>
-                      <Input placeholder="자체 바코드" value={customBarcode} onChange={(e) => setCustomBarcode(e.target.value)} className="h-8 text-sm" />
+                      <Input
+                        placeholder="예: 20 → BV000020"
+                        value={customBarcode}
+                        onChange={(e) => setCustomBarcode(e.target.value)}
+                        onBlur={() => { const n = normalizeSelfBarcode(customBarcode); if (n) setCustomBarcode(n); }}
+                        onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const n = normalizeSelfBarcode(customBarcode); if (n) setCustomBarcode(n); } }}
+                        className="h-8 text-sm"
+                      />
+                      {customBarcode.trim() && (
+                        <p className="text-[11px] mt-0.5 flex items-center gap-1">
+                          <span className="text-muted-foreground">→ <b className="font-mono text-foreground">{normalizeSelfBarcode(customBarcode)}</b></span>
+                          {barcodeCheck === "checking" && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+                          {barcodeCheck === "available" && <span className="text-green-600">✓ 사용가능</span>}
+                          {barcodeCheck === "taken" && <span className="text-destructive">✗ 사용중</span>}
+                        </p>
+                      )}
                     </div>
                   )}
                   <div>
@@ -995,7 +1216,7 @@ export default function ShelfBooksPage() {
 
               <div className="flex gap-2 justify-end">
                 <Button size="sm" variant="ghost" onClick={resetRegistration}>취소</Button>
-                <Button size="sm" onClick={handleRegister} disabled={isRegistering || ((duplicateDetected || manualEntryMode) && !customBarcode.trim()) || !bookInfo?.title.trim()}>
+                <Button size="sm" onClick={handleRegister} disabled={isRegistering || !bookInfo?.title.trim()}>
                   {isRegistering ? <Loader2 className="size-4 mr-1 animate-spin" /> : <BookPlus className="size-4 mr-1" />}
                   {duplicateDetected ? "복본 등록" : manualEntryMode ? "수동 등록" : "등록"}
                 </Button>
@@ -1292,6 +1513,96 @@ export default function ShelfBooksPage() {
               )}
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* 도서명으로 검색 */}
+      <Dialog open={titleSearchOpen} onOpenChange={setTitleSearchOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl">도서명으로 검색</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="flex gap-2">
+              <Input
+                autoFocus
+                placeholder="도서명을 입력하세요"
+                value={titleQuery}
+                onChange={(e) => setTitleQuery(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleTitleSearch()}
+              />
+              <Button onClick={handleTitleSearch} disabled={isTitleSearching || !titleQuery.trim()}>
+                {isTitleSearching ? <Loader2 className="size-4 animate-spin" /> : <Search className="size-4" />}
+              </Button>
+            </div>
+            {titleSearchError && (
+              <p className="text-sm text-destructive">{titleSearchError}</p>
+            )}
+            <div className="max-h-[50vh] overflow-y-auto space-y-2">
+              {titleResults.map((book, i) => (
+                <button
+                  key={`${book.isbn}-${i}`}
+                  type="button"
+                  onClick={() => selectSearchResult(book)}
+                  className="flex gap-3 w-full text-left rounded-lg border p-2 hover:bg-muted/50 active:bg-muted transition-colors"
+                >
+                  {book.cover_image ? (
+                    <img src={book.cover_image} alt="" className="w-12 h-16 object-cover rounded shrink-0 bg-muted" />
+                  ) : (
+                    <div className="w-12 h-16 rounded shrink-0 bg-muted flex items-center justify-center">
+                      <BookPlus className="size-4 text-muted-foreground/40" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium line-clamp-2">{book.title}</p>
+                    <p className="text-xs text-muted-foreground truncate">{book.author}</p>
+                    <p className="text-xs text-muted-foreground truncate">{book.publisher}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              선택하면 도서 정보가 채워지고, 등록 시 자체 바코드(BV…)가 자동 발급됩니다.
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* 등록 확인 다이얼로그 */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-xl">도서를 등록할까요?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-lg border bg-muted/30 divide-y">
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-sm text-muted-foreground">담당 사서</span>
+                <span className="text-base font-semibold">{adminName || "-"}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3 gap-3">
+                <span className="text-sm text-muted-foreground shrink-0">도서명</span>
+                <span className="text-base font-semibold text-right line-clamp-2">{bookInfo?.title}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-sm text-muted-foreground">자체 바코드</span>
+                <span className="text-base font-semibold font-mono">{confirmBarcode}</span>
+              </div>
+              <div className="flex justify-between items-center px-4 py-3">
+                <span className="text-sm text-muted-foreground">서재 위치</span>
+                <span className="text-base font-semibold">{shelfName}</span>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 h-12" onClick={() => setConfirmOpen(false)} disabled={isRegistering}>
+                취소
+              </Button>
+              <Button className="flex-1 h-12 font-semibold" onClick={doRegister} disabled={isRegistering}>
+                {isRegistering ? <Loader2 className="size-4 mr-1 animate-spin" /> : null}
+                등록하기
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

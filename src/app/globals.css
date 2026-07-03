@@ -213,3 +213,64 @@
 .admin-content .gap-4 {
   gap: 1.25rem;
 }
+
+/* 바코드 라벨 인쇄: 스티커 60×40mm, 사이 간격 15mm (잘라서 스티커에 부착) */
+@media print {
+  @page {
+    size: A4;
+    margin: 10mm 5mm;
+  }
+  /* 인쇄 시 배경 흰색 */
+  html,
+  body,
+  .admin-content,
+  main {
+    background: #fff !important;
+  }
+  /* 스크롤 컨테이너가 인쇄 시 페이지 분리를 막지 않도록 */
+  html,
+  body,
+  .admin-content {
+    overflow: visible !important;
+    height: auto !important;
+  }
+  /* 인쇄 시 화면용 패딩 제거 → 콘텐츠 폭 최대 확보 (4열 확보) */
+  main,
+  .admin-content {
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+  /* 콘텐츠 47×30mm, 사이 간격 2mm → A4 한 줄에 4개 (47×4+2×3=194 ≤ 200) */
+  .barcode-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 2mm !important;
+    justify-content: flex-start !important;
+    align-content: flex-start !important;
+  }
+  /* 콘텐츠 1개 = 47×30mm, 절취 가이드용 실선 테두리 */
+  .barcode-label {
+    flex: 0 0 47mm !important;
+    width: 47mm !important;
+    max-width: 47mm !important;
+    height: 30mm !important;
+    min-height: 30mm !important;
+    padding: 1.5mm !important;
+    gap: 1mm !important;
+    border: 0.3mm solid #999 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    overflow: hidden;
+  }
+  /* 스티커 안 로고/바코드 크기 조정 */
+  .barcode-label img {
+    max-height: 8mm !important;
+    width: auto !important;
+  }
+  .barcode-label svg {
+    max-height: 16mm !important;
+    max-width: 100% !important;
+  }
+}

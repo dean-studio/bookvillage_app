@@ -6,20 +6,21 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signInByDongHo, signUp, checkPhoneExists } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
-import { Loader2, ChevronLeft } from "lucide-react";
+import { PrivacyTermsModal } from "@/components/privacy-terms-modal";
+import { Loader2, ChevronLeft, Check } from "lucide-react";
 
 const PIN_LENGTH = 4;
 
 type SiteType = "apartment" | "school" | "village";
 
 type LoginStep = "l-dong" | "l-ho" | "pin";
-type SignupStep = "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin" | "s-confirm";
+type SignupStep = "s-terms" | "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin" | "s-confirm";
 type Step = LoginStep | SignupStep;
 
 const SIGNUP_STEPS_MAP: Record<SiteType, SignupStep[]> = {
-  apartment: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
-  school: ["s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
-  village: ["s-name", "s-phone", "s-dong", "s-pin", "s-confirm"],
+  apartment: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
+  school: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
+  village: ["s-terms", "s-name", "s-phone", "s-dong", "s-pin", "s-confirm"],
 };
 
 export default function LoginPage() {
@@ -39,6 +40,9 @@ export default function LoginPage() {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [logoReady, setLogoReady] = useState(false);
 
+  const [agreedTerms, setAgreedTerms] = useState(false);
+  const [termsOpen, setTermsOpen] = useState(false);
+
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
@@ -54,6 +58,14 @@ export default function LoginPage() {
       setSettingsLoaded(true);
       if (!settings.logo_url) setLogoReady(true);
     });
+  }, []);
+
+  // ?signup=1 로 진입하면 회원가입 모드로 시작
+  useEffect(() => {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("signup") === "1") {
+      setMode("signup");
+      setStep("s-terms");
+    }
   }, []);
 
   function getSignupStepIndex(s: Step): number {
@@ -107,7 +119,10 @@ export default function LoginPage() {
 
   function handleNext() {
     setError(null);
-    if (step === "l-dong") {
+    if (step === "s-terms") {
+      if (agreedTerms) setStep("s-name");
+      else setError("개인정보 수집·이용에 동의해주세요.");
+    } else if (step === "l-dong") {
       if (!dong.trim()) {
         setError(getDongLabel() + "을(를) 입력해주세요.");
         return;
@@ -181,17 +196,19 @@ export default function LoginPage() {
     setName("");
     setDong("");
     setHo("");
+    setAgreedTerms(false);
     setError(null);
   }
 
   function startSignup() {
     setMode("signup");
-    setStep("s-name");
+    setStep("s-terms");
     setPhone("");
     setPin("");
     setName("");
     setDong("");
     setHo("");
+    setAgreedTerms(false);
     setError(null);
   }
 
@@ -287,6 +304,7 @@ export default function LoginPage() {
       case "l-ho":
       case "s-ho":
         return siteType === "school" ? "반을 입력하세요" : "호수를 입력하세요";
+      case "s-terms": return "약관에 동의해주세요";
       case "s-name": return "이름을 입력하세요";
       case "s-phone": return "휴대폰 번호를 입력하세요";
       case "s-pin": return "비밀번호 4자리를 설정하세요";
@@ -527,6 +545,62 @@ export default function LoginPage() {
               </div>
             </div>
           )}
+
+          {/* 약관 동의 (회원가입 첫 단계) */}
+          {step === "s-terms" && (
+            <div className="w-full max-w-sm space-y-[3vh]">
+              <button
+                type="button"
+                onClick={() => setAgreedTerms((v) => !v)}
+                className="flex items-start gap-3 w-full text-left rounded-xl border-2 p-[clamp(1.1rem,2.5vw,1.5rem)] active:bg-muted/50 transition-colors"
+                style={{ borderColor: agreedTerms ? "var(--primary)" : undefined }}
+              >
+                <span
+                  className={`mt-0.5 flex-shrink-0 flex items-center justify-center rounded-md border-2 transition-colors ${
+                    agreedTerms ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40"
+                  }`}
+                  style={{ width: "clamp(1.6rem,4.5vw,2.1rem)", height: "clamp(1.6rem,4.5vw,2.1rem)" }}
+                >
+                  {agreedTerms && <Check className="size-[clamp(1.1rem,3vw,1.5rem)]" strokeWidth={3} />}
+                </span>
+                <span className="text-[clamp(1.05rem,2.6vw,1.35rem)] leading-snug">
+                  <span className="font-semibold">[필수]</span> 개인정보 수집·이용에 동의합니다
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setTermsOpen(true)}
+                className="w-full text-center underline text-muted-foreground text-[clamp(0.95rem,2.3vw,1.2rem)] py-1"
+              >
+                약관 전문 보기
+              </button>
+
+              {error && (
+                <div className="rounded-lg bg-destructive/10 px-4 py-3 text-center">
+                  <p className="text-[clamp(1rem,2.5vw,1.4rem)] text-destructive">{error}</p>
+                </div>
+              )}
+
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  className="h-[8vh] min-h-16 text-[clamp(1.3rem,3vw,1.8rem)] flex-1"
+                  onClick={handleBack}
+                >
+                  <ChevronLeft className="size-6 mr-1" />
+                  이전
+                </Button>
+                <Button
+                  className="h-[8vh] min-h-16 text-[clamp(1.3rem,3vw,1.8rem)] font-semibold flex-1"
+                  onClick={handleNext}
+                  disabled={!agreedTerms}
+                >
+                  다음
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* 하단 영역: 숫자패드 (화면 하단 고정) */}
@@ -614,6 +688,14 @@ export default function LoginPage() {
 
 
       </div>
+
+      {/* 개인정보 수집·이용 약관 전문 */}
+      <PrivacyTermsModal
+        open={termsOpen}
+        orgName={apartmentName}
+        onClose={() => setTermsOpen(false)}
+        onAgree={() => { setAgreedTerms(true); setTermsOpen(false); }}
+      />
     </div>
   );
 }

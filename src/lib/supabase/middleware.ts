@@ -31,8 +31,8 @@ export async function updateSession(request: NextRequest) {
 
   const pathname = request.nextUrl.pathname
 
-  // 인증 페이지: 로그인 상태면 /rent로 리다이렉트
-  if (user && (pathname === '/login' || pathname === '/signup')) {
+  // 인증 페이지/랜딩: 로그인 상태면 /rent로 리다이렉트
+  if (user && (pathname === '/' || pathname === '/login' || pathname === '/signup')) {
     const url = request.nextUrl.clone()
     url.pathname = '/rent'
     return NextResponse.redirect(url)
