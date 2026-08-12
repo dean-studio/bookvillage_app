@@ -30,9 +30,11 @@ import {
   Candy,
   Plus,
   Minus,
+  KeyRound,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getResidentDetail } from "@/app/actions/rentals";
+import { adminResetResidentPin } from "@/app/actions/auth";
 import { getUserJellyHistory, adminGiveJelly, adminDeductJelly } from "@/app/actions/jelly";
 
 type ResidentData = NonNullable<Awaited<ReturnType<typeof getResidentDetail>>>;
@@ -55,6 +57,28 @@ export default function AdminResidentDetailPage() {
   const [jellyDesc, setJellyDesc] = useState("");
   const [jellyMsg, setJellyMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isJellyAction, startJellyAction] = useTransition();
+
+  // PIN 재설정 state
+  const [newPin, setNewPin] = useState("");
+  const [pinMsg, setPinMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isPinAction, startPinAction] = useTransition();
+
+  function handleResetPin() {
+    if (!/^\d{4}$/.test(newPin)) {
+      setPinMsg({ type: "error", text: "숫자 4자리를 입력하세요." });
+      return;
+    }
+    setPinMsg(null);
+    startPinAction(async () => {
+      const result = await adminResetResidentPin(userId, newPin);
+      if (result.success) {
+        setPinMsg({ type: "success", text: `비밀번호가 ${newPin}(으)로 재설정되었습니다.` });
+        setNewPin("");
+      } else {
+        setPinMsg({ type: "error", text: result.error || "재설정 실패" });
+      }
+    });
+  }
 
   useEffect(() => {
     startTransition(async () => {
@@ -189,6 +213,40 @@ export default function AdminResidentDetailPage() {
               </div>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      {/* 비밀번호(PIN) 재설정 */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <KeyRound className="size-4" />
+            비밀번호(PIN) 재설정
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            비밀번호는 암호화되어 저장되므로 조회할 수 없습니다. 주민이 비밀번호를 잊은 경우 새 PIN 4자리로 재설정해 주세요.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              inputMode="numeric"
+              maxLength={4}
+              placeholder="새 PIN 4자리"
+              value={newPin}
+              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              className="w-40 font-mono tracking-widest text-lg"
+            />
+            <Button onClick={handleResetPin} disabled={isPinAction || newPin.length !== 4}>
+              {isPinAction ? <Loader2 className="size-4 mr-1 animate-spin" /> : <KeyRound className="size-4 mr-1" />}
+              재설정
+            </Button>
+          </div>
+          {pinMsg && (
+            <p className={`text-sm ${pinMsg.type === "success" ? "text-green-600" : "text-destructive"}`}>
+              {pinMsg.text}
+            </p>
+          )}
         </CardContent>
       </Card>
 

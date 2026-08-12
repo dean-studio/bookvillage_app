@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>자람도서관 이용 안내 (인쇄용)</title>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Pretendard', -apple-system, sans-serif;
+    color: #1a1a1a;
+    background: #e5e5e5;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* A4 페이지 (세로) */
+  .page {
+    width: 210mm;
+    height: 297mm;
+    background: #fff;
+    margin: 12px auto;
+    padding: 18mm 16mm;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+
+  /* A4 페이지 (가로) */
+  .page.landscape {
+    width: 297mm;
+    height: 210mm;
+    padding: 14mm 18mm;
+  }
+
+  /* 가로형 2단 레이아웃 */
+  .cols {
+    display: flex;
+    gap: 0;
+    flex: 1;
+    margin-top: 8mm;
+    align-items: stretch;
+  }
+  .cols .col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    padding: 0 26px;
+  }
+  .cols .col:first-child { padding-left: 0; }
+  .cols .col:last-child { padding-right: 0; }
+  /* 2단 사이 세로 구분선 */
+  .cols .col + .col {
+    border-left: 3px solid #f5b400;
+  }
+  .cols .col .section { margin-top: 0; }
+
+  /* 가로형에서는 글자·요소를 더 크게 */
+  .page.landscape .header .titles h1 { font-size: 34px; }
+  .page.landscape .header .titles p { font-size: 16px; }
+  .page.landscape .section-title { font-size: 23px; margin-bottom: 14px; }
+  .page.landscape .section-title .num { width: 36px; height: 36px; font-size: 19px; }
+  .page.landscape .steps { gap: 12px; }
+  .page.landscape .step { padding: 18px 20px; border-radius: 14px; }
+  .page.landscape .step .badge { width: 34px; height: 34px; font-size: 18px; }
+  .page.landscape .step .txt { font-size: 20px; }
+  .page.landscape .step .txt .sub { font-size: 16px; margin-top: 4px; }
+  .page.landscape .note { font-size: 16px; padding: 14px 18px; }
+  .page.landscape .perks { gap: 11px; }
+  .page.landscape .perk { padding: 14px 16px; }
+  .page.landscape .perk .pic { font-size: 28px; }
+  .page.landscape .perk .pc b { font-size: 16.5px; }
+  .page.landscape .perk .pc span { font-size: 13.5px; }
+  /* 4열 그리드 (전체폭) */
+  .perks.perks-4 { grid-template-columns: repeat(4, 1fr); }
+  /* 3열 그리드 (3+3+2) */
+  .perks.perks-3 { grid-template-columns: repeat(3, 1fr); gap: 13px; }
+  .perks.perks-3 .perk { padding: 16px 18px; }
+  .perks.perks-3 .perk .pic { font-size: 30px; }
+  .perks.perks-3 .perk .pc b { font-size: 18px; }
+  .perks.perks-3 .perk .pc span { font-size: 14.5px; }
+  .page.landscape ul.list li { font-size: 17px; padding: 9px 0 9px 32px; }
+  .page.landscape .footer { font-size: 16px; }
+
+
+  /* 상단 컬러 바 */
+  .page::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 12mm;
+    background: linear-gradient(90deg, #f5b400, #f7c948);
+  }
+
+  /* 헤더 */
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 6mm;
+    padding-bottom: 6mm;
+    border-bottom: 3px solid #f5b400;
+  }
+  .header img.logo {
+    width: 58px; height: 58px;
+    object-fit: contain;
+    border-radius: 12px;
+  }
+  .header .titles h1 {
+    font-size: 27px;
+    font-weight: 800;
+    letter-spacing: -0.5px;
+  }
+  .header .titles p {
+    font-size: 14px;
+    color: #666;
+    margin-top: 2px;
+    font-weight: 500;
+  }
+
+  /* 섹션 */
+  .section { margin-top: 7mm; }
+  .section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 19px;
+    font-weight: 800;
+    color: #c98a00;
+    margin-bottom: 9px;
+  }
+  .section-title .num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 30px; height: 30px;
+    background: #f5b400;
+    color: #fff;
+    border-radius: 50%;
+    font-size: 16px;
+    font-weight: 800;
+    flex-shrink: 0;
+  }
+
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    background: #fffbe9;
+    border: 1.5px solid #f7dd8a;
+    border-radius: 12px;
+    padding: 13px 16px;
+  }
+  .step .badge {
+    flex-shrink: 0;
+    width: 26px; height: 26px;
+    background: #f5b400;
+    color: #fff;
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 15px;
+  }
+  .step .txt { font-size: 16px; }
+  .step .txt b { font-weight: 800; }
+  .step .txt .sub { font-size: 13.5px; color: #777; margin-top: 2px; }
+
+  ul.list { list-style: none; }
+  ul.list li {
+    font-size: 16px;
+    padding: 7px 0 7px 30px;
+    position: relative;
+    border-bottom: 1px dashed #eee;
+  }
+  ul.list li:last-child { border-bottom: none; }
+  ul.list li::before {
+    content: "✓";
+    position: absolute;
+    left: 4px; top: 7px;
+    color: #f5b400;
+    font-weight: 800;
+  }
+  ul.list li b { font-weight: 800; color: #111; }
+
+  .note {
+    background: #f0f7ff;
+    border-left: 4px solid #5b9bd5;
+    border-radius: 8px;
+    padding: 11px 15px;
+    font-size: 13.5px;
+    color: #345;
+    margin-top: 10px;
+  }
+
+  /* 좋은 점 그리드 */
+  .perks {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 9px;
+  }
+  .perk {
+    display: flex;
+    align-items: center;
+    gap: 11px;
+    background: #fffbe9;
+    border: 1.5px solid #f7dd8a;
+    border-radius: 12px;
+    padding: 11px 13px;
+  }
+  .perk .pic { font-size: 26px; flex-shrink: 0; line-height: 1; }
+  .perk .pc { display: flex; flex-direction: column; }
+  .perk .pc b { font-size: 15.5px; font-weight: 800; color: #1a1a1a; line-height: 1.2; }
+  .perk .pc span { font-size: 12.5px; color: #8a7300; margin-top: 2px; }
+
+
+  /* 규칙 카드 그리드 */
+  .rules {
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .rule {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    padding: 12px 15px;
+    border: 1.5px solid #eee;
+    border-radius: 12px;
+  }
+  .rule.warn { background: #fff5f5; border-color: #ffd0d0; }
+  .rule .ic { font-size: 22px; flex-shrink: 0; line-height: 1.3; }
+  .rule .rc h3 { font-size: 16.5px; font-weight: 800; }
+  .rule .rc p { font-size: 14.5px; color: #555; margin-top: 2px; }
+  .rule .rc p b { color: #d33; font-weight: 800; }
+
+  .footer {
+    margin-top: 7mm;
+    text-align: center;
+    font-size: 14px;
+    color: #888;
+    padding-top: 5mm;
+    border-top: 2px dashed #ddd;
+  }
+  .footer b { color: #c98a00; }
+
+  /* 페이지별 인쇄 방향 지정 */
+  @page portrait-pg { size: A4 portrait; margin: 0; }
+  @page landscape-pg { size: A4 landscape; margin: 0; }
+
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; box-shadow: none; page-break-after: always; }
+    .page:last-child { page-break-after: auto; }
+    .page.landscape { page: landscape-pg; }
+    .page.portrait { page: portrait-pg; }
+    .no-print { display: none !important; }
+  }
+
+  /* ===== 블루/민트 테마 (A4 ②) ===== */
+  .page.blue-theme::before { background: linear-gradient(90deg, #16b6c9, #3d8bff); }
+  .page.blue-theme .header { border-bottom-color: #16b6c9; }
+  .page.blue-theme .header .titles h1 { color: #0e5a8a; }
+  .page.blue-theme .section-title { color: #1177b5; }
+  .page.blue-theme .section-title .num { background: #16b6c9; }
+  .page.blue-theme .perk {
+    background: #e9fbfd;
+    border-color: #a5e6ee;
+  }
+  .page.blue-theme .perk .pc b { color: #0e4a63; }
+  .page.blue-theme .perk .pc span { color: #2b8aa0; }
+  .page.blue-theme .note {
+    background: #eaf4ff !important;
+    border-left-color: #3d8bff !important;
+    color: #234a75 !important;
+  }
+  .page.blue-theme .note b { color: #0e5a8a; }
+  .page.blue-theme .footer b { color: #1177b5; }
+
+  .toolbar {
+    position: fixed; top: 12px; right: 12px;
+    background: #f5b400; color: #fff;
+    border: none; padding: 12px 20px;
+    border-radius: 10px; font-size: 15px; font-weight: 700;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    font-family: inherit;
+  }
+</style>
+</head>
+<body>
+
+<button class="toolbar no-print" onclick="window.print()">🖨️ 인쇄하기</button>
+
+<!-- ============ A4 ① : 앱 이용 안내 (가로형) ============ -->
+<div class="page landscape">
+  <div class="header">
+    <img class="logo" src="/logo.png" alt="자람도서관" />
+    <div class="titles">
+      <h1>자람도서관, 앱으로 더 편해졌어요!</h1>
+      <p>중앙힐스테이트 자람도서관 · 무인 셀프 대여</p>
+    </div>
+  </div>
+
+  <div class="cols">
+    <div class="col">
+      <div class="section">
+        <div class="section-title"><span class="num">1</span>처음 오셨나요? · 회원가입</div>
+        <div class="steps">
+          <div class="step"><span class="badge">1</span><div class="txt"><b>오른쪽 QR코드를 휴대폰 카메라로 스캔</b></div></div>
+          <div class="step"><span class="badge">2</span><div class="txt"><b>[회원가입]</b> → 동·호수·이름·연락처 입력</div></div>
+          <div class="step"><span class="badge">3</span><div class="txt"><b>4자리 비밀번호(PIN) 설정 → 완료!</b></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="section">
+        <div class="section-title"><span class="num">2</span>책 빌리는 방법</div>
+        <div class="steps">
+          <div class="step"><span class="badge">📷</span><div class="txt"><b>바코드 스캔</b><div class="sub">[대여하기] → 책 뒷면 바코드를 카메라에 비추면 끝!</div></div></div>
+          <div class="step"><span class="badge">🔍</span><div class="txt"><b>제목 검색</b><div class="sub">책 제목으로 검색 → 원하는 책 선택 → [대여하기]</div></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:auto;">📌 입력하신 정보(동·호수·연락처)는 <b>연체 안내와 이벤트 참여</b>를 위해서만 사용하며, 홍보 목적으로는 사용하지 않습니다.</div>
+
+</div>
+
+<!-- ============ A4 ② : 앱 혜택 & 이용 안내 (가로형, 블루 테마) ============ -->
+<div class="page landscape blue-theme">
+  <div class="header">
+    <img class="logo" src="/logo.png" alt="자람도서관" />
+    <div class="titles">
+      <h1>자람도서관 이용 안내</h1>
+      <p>중앙힐스테이트 자람도서관</p>
+    </div>
+  </div>
+
+  <div class="section" style="margin-top:8mm;">
+    <div class="section-title"><span class="num">1</span>앱을 쓰면 이런 게 좋아요! 🎉</div>
+    <div class="perks perks-3">
+      <div class="perk"><span class="pic">🍬</span><div class="pc"><b>반납하면 포인트 적립!</b><span>모아서 이벤트·선물 받아요</span></div></div>
+      <div class="perk"><span class="pic">🎁</span><div class="pc"><b>독서록 쓰면 이벤트 자동 참여</b><span>내 생각을 남기고 상품도 노려요</span></div></div>
+      <div class="perk"><span class="pic">📖</span><div class="pc"><b>나만의 독서 히스토리 보관</b><span>내가 읽은 책이 차곡차곡 쌓여요</span></div></div>
+      <div class="perk"><span class="pic">🏆</span><div class="pc"><b>포인트 랭킹 도전!</b><span>많이 읽을수록 순위가 쑥쑥</span></div></div>
+      <div class="perk"><span class="pic">🔍</span><div class="pc"><b>약 5,000여 권 바로 검색</b><span>보고 싶은 책을 손안에서 척!</span></div></div>
+      <div class="perk"><span class="pic">📍</span><div class="pc"><b>책 위치를 콕 찍어줘요</b><span>어느 서가에 있는지 한눈에</span></div></div>
+      <div class="perk"><span class="pic">🔔</span><div class="pc"><b>반납일 알림</b><span>깜빡해도 앱이 알려줘요</span></div></div>
+      <div class="perk"><span class="pic">📷</span><div class="pc"><b>바코드 찍으면 1초 대여</b><span>줄 서지 않고 셀프로 뚝딱</span></div></div>
+    </div>
+  </div>
+
+  <div class="section" style="margin-top:9mm;">
+    <div class="section-title"><span class="num">2</span>앱 사용이 어려우신 분은 (수기 대여)</div>
+    <div class="note" style="background:#fffbe9;border-left-color:#f5b400;color:#5a4500;">
+      왼쪽 노트에 <b>① 동·호수 ② 이름 ③ 연락처 ④ 책 제목</b>을 적어주세요.
+      &nbsp;·&nbsp; 글씨는 <b>또박또박</b>, 책 제목은 <b>한 칸에 하나씩</b> 적어주세요.
+    </div>
+  </div>
+
+  <div class="footer">
+    함께 만들어가는 우리 단지 도서관, 감사합니다 😊 &nbsp;<b>— 자람도서관 —</b>
+  </div>
+</div>
+
+</body>
+</html>

@@ -17,7 +17,9 @@ export type Database = {
           dong_ho: string
           role: 'resident' | 'admin'
           admin_status: 'pending' | 'approved' | null
+          is_guest: boolean
           notifications_read_at: string | null
+          notices_read_at: string | null
           created_at: string
           updated_at: string
         }
@@ -28,7 +30,9 @@ export type Database = {
           dong_ho: string
           role?: 'resident' | 'admin'
           admin_status?: 'pending' | 'approved' | null
+          is_guest?: boolean
           notifications_read_at?: string | null
+          notices_read_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -39,7 +43,42 @@ export type Database = {
           dong_ho?: string
           role?: 'resident' | 'admin'
           admin_status?: 'pending' | 'approved' | null
+          is_guest?: boolean
           notifications_read_at?: string | null
+          notices_read_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      notices: {
+        Row: {
+          id: string
+          title: string
+          content: string
+          image_url: string | null
+          is_published: boolean
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          content?: string
+          image_url?: string | null
+          is_published?: boolean
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          content?: string
+          image_url?: string | null
+          is_published?: boolean
+          created_by?: string | null
           created_at?: string
           updated_at?: string
         }

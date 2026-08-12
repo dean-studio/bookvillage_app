@@ -14,9 +14,11 @@ import {
   Clock,
   FileText,
   ShieldCheck,
+  Megaphone,
 } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 import { getMyPageData } from "@/app/actions/mypage";
+import { getUnreadNoticeCount } from "@/app/actions/notices";
 import { getPublicSettings } from "@/app/actions/settings";
 import { PrivacyTermsModal } from "@/components/privacy-terms-modal";
 import { useQuery } from "@tanstack/react-query";
@@ -28,6 +30,11 @@ export default function MyPage() {
   const { data, isLoading } = useQuery({
     queryKey: ["mypage"],
     queryFn: getMyPageData,
+  });
+
+  const { data: unreadNotices = 0 } = useQuery({
+    queryKey: ["unreadNoticeCount"],
+    queryFn: getUnreadNoticeCount,
   });
 
   const { data: publicSettings } = useQuery({
@@ -109,6 +116,13 @@ export default function MyPage() {
       label: "알림",
       badge: unreadNotif > 0 ? `${unreadNotif}` : notifCount > 0 ? `${notifCount}` : undefined,
       badgeVariant: unreadNotif > 0 ? "destructive" as const : "secondary" as const,
+    },
+    {
+      href: "/mypage/notices",
+      icon: Megaphone,
+      label: "공지사항",
+      badge: unreadNotices > 0 ? `${unreadNotices}` : undefined,
+      badgeVariant: "destructive" as const,
     },
     {
       href: "/mypage/jelly",

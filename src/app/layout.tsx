@@ -33,6 +33,17 @@ export async function generateMetadata(): Promise<Metadata> {
       template: `%s | ${title}`,
     },
     description,
+    // 홈 화면 추가 시 앱 이름/아이콘
+    applicationName: "자람도서관",
+    appleWebApp: {
+      capable: true,
+      title: "자람도서관",
+      statusBarStyle: "default",
+    },
+    icons: {
+      icon: "/icon-192.png",
+      apple: "/apple-touch-icon.png",
+    },
     openGraph: {
       title,
       description,

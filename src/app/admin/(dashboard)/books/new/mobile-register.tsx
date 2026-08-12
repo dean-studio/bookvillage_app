@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useTransition, useCallback } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -18,6 +19,7 @@ import {
   FlashlightOff,
   Copy,
   BookOpen,
+  FileEdit,
 } from "lucide-react";
 import { getShelves } from "@/app/actions/shelves";
 import { createBook, checkBarcodeExists, deleteBook } from "@/app/actions/books";
@@ -204,7 +206,7 @@ export function MobileRegister() {
 
       await html5QrCode.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 280, height: 120 } },
+        { fps: 10, qrbox: { width: 250, height: 100 } },
         (decodedText: string) => {
           html5QrCode.stop().then(() => {
             scannerRef.current = null;
@@ -1102,6 +1104,18 @@ export function MobileRegister() {
                   여러 권을 스캔하고 일괄 등록합니다
                 </span>
               </button>
+
+              {selectedShelf && (
+                <Link
+                  href={`/admin/books/shelf/${encodeURIComponent(selectedShelf)}/manual`}
+                  className="w-full max-w-sm flex items-center justify-center gap-2 rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors cursor-pointer py-4"
+                >
+                  <FileEdit className="size-5 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                    자체 등록 (전용 페이지)
+                  </span>
+                </Link>
+              )}
 
               <div className="w-full max-w-sm flex items-center gap-2">
                 <div className="flex-1 h-px bg-border" />

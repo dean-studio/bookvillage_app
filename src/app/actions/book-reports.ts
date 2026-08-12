@@ -1,10 +1,81 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getCurrentUser } from '@/app/actions/auth'
 import { awardJellyForReport } from '@/app/actions/jelly'
 import type { ActionResult, BookReport } from '@/types'
 import { z } from 'zod'
+
+// 관리자: 전체 독서록 조회 (검색/페이지네이션)
+export async function getAllBookReports(params?: {
+  query?: string
+  page?: number
+  pageSize?: number
+}) {
+  const user = await getCurrentUser()
+  if (!user || user.role !== 'admin') return { rows: [], totalCount: 0, page: 1, totalPages: 0 }
+
+  const page = params?.page ?? 1
+  const pageSize = params?.pageSize ?? 20
+  const kw = params?.query?.trim()
+
+  // 검색: 도서명/저자 또는 작성자 이름/동호수에서 매칭 id 수집
+  let matchBookIds: string[] | null = null
+  let matchUserIds: string[] | null = null
+  if (kw) {
+    const [{ data: mb }, { data: mp }] = await Promise.all([
+      supabaseAdmin.from('books').select('id').or(`title.ilike.%${kw}%,author.ilike.%${kw}%`),
+      supabaseAdmin.from('profiles').select('id').or(`name.ilike.%${kw}%,dong_ho.ilike.%${kw}%`),
+    ])
+    matchBookIds = (mb ?? []).map((b) => b.id)
+    matchUserIds = (mp ?? []).map((p) => p.id)
+  }
+
+  let base = supabaseAdmin
+    .from('book_reports')
+    .select('id, book_id, user_id, rating, review, created_at', { count: 'exact' })
+
+  if (kw) {
+    const ors: string[] = []
+    if (matchBookIds && matchBookIds.length) ors.push(`book_id.in.(${matchBookIds.join(',')})`)
+    if (matchUserIds && matchUserIds.length) ors.push(`user_id.in.(${matchUserIds.join(',')})`)
+    if (ors.length === 0) return { rows: [], totalCount: 0, page, totalPages: 0 }
+    base = base.or(ors.join(','))
+  }
+
+  const from = (page - 1) * pageSize
+  const { data, count } = await base
+    .order('created_at', { ascending: false })
+    .range(from, from + pageSize - 1)
+
+  if (!data || data.length === 0) {
+    return { rows: [], totalCount: count ?? 0, page, totalPages: Math.ceil((count ?? 0) / pageSize) }
+  }
+
+  const bookIds = [...new Set(data.map((r) => r.book_id))]
+  const userIds = [...new Set(data.map((r) => r.user_id))]
+  const [{ data: books }, { data: profiles }] = await Promise.all([
+    supabaseAdmin.from('books').select('id, title, author').in('id', bookIds),
+    supabaseAdmin.from('profiles').select('id, name, dong_ho').in('id', userIds),
+  ])
+  const bookMap = Object.fromEntries((books ?? []).map((b) => [b.id, b]))
+  const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]))
+
+  const rows = data.map((r) => ({
+    id: r.id,
+    book_id: r.book_id,
+    book_title: bookMap[r.book_id]?.title ?? '알 수 없음',
+    book_author: bookMap[r.book_id]?.author ?? '',
+    user_name: profileMap[r.user_id]?.name ?? '알 수 없음',
+    user_dong_ho: profileMap[r.user_id]?.dong_ho ?? '',
+    rating: r.rating as number,
+    review: r.review as string,
+    created_at: r.created_at as string,
+  }))
+
+  return { rows, totalCount: count ?? 0, page, totalPages: Math.ceil((count ?? 0) / pageSize) }
+}
 
 const createReportSchema = z.object({
   book_id: z.string().uuid(),

@@ -293,6 +293,43 @@ export async function rejectAdmin(adminId: string): Promise<ActionResult> {
   return { success: true }
 }
 
+// 관리자: 주민 PIN(비밀번호) 재설정
+export async function adminResetResidentPin(userId: string, newPin: string): Promise<ActionResult> {
+  const user = await getCurrentUser()
+  if (!user || user.role !== 'admin' || user.admin_status !== 'approved') {
+    return { success: false, error: '권한이 없습니다.' }
+  }
+
+  if (!/^\d{4}$/.test(newPin)) {
+    return { success: false, error: 'PIN은 숫자 4자리여야 합니다.' }
+  }
+
+  // 대상이 주민인지 확인
+  const { data: target } = await supabaseAdmin
+    .from('profiles')
+    .select('id, role')
+    .eq('id', userId)
+    .single()
+
+  if (!target) {
+    return { success: false, error: '존재하지 않는 사용자입니다.' }
+  }
+  if (target.role === 'admin') {
+    return { success: false, error: '관리자 계정은 이 기능으로 재설정할 수 없습니다.' }
+  }
+
+  // Supabase Auth 비밀번호 갱신 (Service Role)
+  const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+    password: pinToPassword(newPin),
+  })
+
+  if (error) {
+    return { success: false, error: 'PIN 재설정에 실패했습니다.' }
+  }
+
+  return { success: true }
+}
+
 export async function signOut(): Promise<void> {
   const supabase = await createClient()
   await supabase.auth.signOut()

@@ -28,6 +28,7 @@ type OverdueItem = {
   book_id: string;
   book: { title: string; barcode: string };
   user: { name: string; dong_ho: string; phone_number: string };
+  is_guest: boolean;
   rented_at: string;
   due_date: string;
   overdue_days: number;
@@ -124,7 +125,12 @@ export default function OverduePage() {
                           className="text-primary cursor-pointer hover:underline"
                           onClick={() => router.push(`/admin/residents/${item.user_id}`)}
                         >
-                          {item.user.name}
+                          <span className="inline-flex items-center gap-1.5">
+                            {item.user.name}
+                            {item.is_guest && (
+                              <Badge variant="outline" className="border-amber-400 text-amber-600 text-[0.65rem] px-1.5 py-0">게스트</Badge>
+                            )}
+                          </span>
                         </TableCell>
                         <TableCell className="text-muted-foreground">
                           {item.user.dong_ho}
@@ -201,7 +207,7 @@ export default function OverduePage() {
                       </Badge>
                     </div>
                     <div className="text-xs text-muted-foreground space-y-0.5">
-                      <p>대출자: <span className="text-foreground cursor-pointer text-primary" onClick={() => router.push(`/admin/residents/${item.user_id}`)}>{item.user.name}</span> ({item.user.dong_ho})</p>
+                      <p>대출자: <span className="text-foreground cursor-pointer text-primary" onClick={() => router.push(`/admin/residents/${item.user_id}`)}>{item.user.name}</span> ({item.user.dong_ho}){item.is_guest && <Badge variant="outline" className="ml-1 border-amber-400 text-amber-600 text-[0.6rem] px-1 py-0">게스트</Badge>}</p>
                       <p>연락처: {item.user.phone_number}</p>
                       <p>반납 예정: <span className="text-destructive font-medium">{item.due_date}</span></p>
                     </div>

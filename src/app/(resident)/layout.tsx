@@ -1,6 +1,7 @@
 import { BottomNav } from "@/components/bottom-nav";
 import { AutoLogout } from "@/components/auto-logout";
 import { QueryProvider } from "@/components/query-provider";
+import { NoticePopup } from "@/components/notice-popup";
 
 export default function ResidentLayout({
   children,
@@ -13,6 +14,7 @@ export default function ResidentLayout({
         <AutoLogout />
         <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
         <BottomNav />
+        <NoticePopup />
       </div>
     </QueryProvider>
   );

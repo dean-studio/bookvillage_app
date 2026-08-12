@@ -33,6 +33,7 @@ import { getShelfBooks } from "@/app/actions/shelves";
 import { createBook, updateBook, deleteBook, checkBarcodeExists, getBookRentalCount, generateBarcodes } from "@/app/actions/books";
 import { getCurrentUser } from "@/app/actions/auth";
 import { uploadBookCoverImage } from "@/lib/storage";
+import { hangulToLatinKeys } from "@/lib/utils";
 
 interface BookInfo {
   title: string;
@@ -382,7 +383,8 @@ export default function ShelfBooksPage() {
 
   // 입력값을 자체 바코드 형식(BV000050)으로 정규화. 숫자만 입력하면 BV+6자리
   function normalizeSelfBarcode(input: string): string {
-    const s = input.trim();
+    // 리더기가 한글 IME 상태로 찍은 경우(BV→ㅠㅍ) 영문으로 복원
+    const s = hangulToLatinKeys(input).trim();
     if (!s) return "";
     if (/^\d+$/.test(s)) {
       return `BV${s.padStart(6, "0")}`;
@@ -927,6 +929,16 @@ export default function ShelfBooksPage() {
                 <span className="text-base font-semibold text-primary">바코드 스캔으로 등록</span>
                 <span className="text-xs text-muted-foreground">터치하여 카메라 열기</span>
               </button>
+
+              <Link
+                href={`/admin/books/shelf/${encodeURIComponent(shelfName)}/manual`}
+                className="w-full flex items-center justify-center gap-2 rounded-xl border-2 border-emerald-500/50 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors cursor-pointer py-4"
+              >
+                <Pencil className="size-5 text-emerald-600 dark:text-emerald-400" />
+                <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                  자체 등록 (전용 페이지)
+                </span>
+              </Link>
 
               <div className="flex items-center gap-2">
                 <div className="flex-1 h-px bg-border" />

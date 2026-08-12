@@ -74,16 +74,33 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
   const vbW = shelves.length > 0 ? (maxX - minX) * CELL + PAD * 2 : 0;
   const vbH = shelves.length > 0 ? (maxY - minY) * CELL + PAD * 2 : 0;
 
-  const shelfSvgContent = shelves.length > 0 ? (
+  // 하이라이트 서재 중심으로 미니맵 확대 viewBox
+  const target = shelves.find((s) => s.type === "shelf" && s.name === book.location_group);
+  let miniViewBox = `0 0 ${vbW} ${vbH}`;
+  if (target && shelves.length > 0) {
+    const tx = (target.position_x - minX) * CELL + PAD;
+    const ty = (target.position_y - minY) * CELL + PAD;
+    const tw = target.width * CELL;
+    const th = target.height * CELL;
+    const marginX = tw * 1.2;
+    const marginY = th * 1.2;
+    let bw = Math.min(tw + marginX * 2, vbW);
+    let bh = Math.min(th + marginY * 2, vbH);
+    let bx = Math.max(0, Math.min(tx - marginX, vbW - bw));
+    let by = Math.max(0, Math.min(ty - marginY, vbH - bh));
+    miniViewBox = `${bx} ${by} ${bw} ${bh}`;
+  }
+
+  const renderShelfSvg = (fullView: boolean) => shelves.length > 0 ? (
     <>
       <style>{`
-        @keyframes blink-shelf {
-          0%, 100% { opacity: 1; fill-opacity: 0.35; }
-          50% { opacity: 0.3; fill-opacity: 0.1; }
+        @keyframes pulse-shelf {
+          0%, 100% { stroke-width: 4; }
+          50% { stroke-width: 8; }
         }
-        @keyframes blink-text {
-          0%, 100% { opacity: 1; }
-          50% { opacity: 0.3; }
+        @keyframes pulse-glow {
+          0%, 100% { opacity: 0.25; transform: scale(1); }
+          50% { opacity: 0.6; transform: scale(1.04); }
         }
       `}</style>
       {shelves.map((s) => {
@@ -94,32 +111,47 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
         const h = s.height * CELL - 4;
         const displayName = getShelfDisplayName(s.name, s.type);
         const fontSize = s.font_size > 0 ? Math.min(s.font_size, h * 0.5) : Math.min(10, h * 0.4);
+        const dimOpacity = fullView ? 0.9 : 0.25;
+        const dimFill = fullView ? s.color + "22" : s.color + "12";
+        const dimStroke = fullView ? 1.5 : 1;
+        const dimTextOpacity = fullView ? 0.85 : 0.4;
 
         return (
           <g key={s.id}>
+            {isHighlighted && (
+              <rect
+                x={x + 2}
+                y={y + 2}
+                width={w}
+                height={h}
+                rx={4}
+                fill={s.color}
+                style={{ transformOrigin: `${x + 2 + w / 2}px ${y + 2 + h / 2}px`, animation: "pulse-glow 1.1s ease-in-out infinite" }}
+              />
+            )}
             <rect
               x={x + 2}
               y={y + 2}
               width={w}
               height={h}
               rx={4}
-              fill={isHighlighted ? s.color + "40" : s.color + "15"}
+              fill={isHighlighted ? s.color : dimFill}
+              fillOpacity={isHighlighted ? 0.85 : 1}
               stroke={s.color}
-              strokeWidth={isHighlighted ? 3 : 1}
+              strokeWidth={isHighlighted ? 4 : dimStroke}
               strokeDasharray={s.type === "label" ? "4 2" : undefined}
-              opacity={isHighlighted ? 1 : 0.35}
-              style={isHighlighted ? { animation: "blink-shelf 0.8s ease-in-out infinite" } : undefined}
+              opacity={isHighlighted ? 1 : dimOpacity}
+              style={isHighlighted ? { animation: "pulse-shelf 1.1s ease-in-out infinite" } : undefined}
             />
             <text
               x={x + 2 + w / 2}
               y={y + 2 + h / 2}
               textAnchor="middle"
               dominantBaseline="central"
-              fill={s.color}
-              fontSize={fontSize}
+              fill={isHighlighted ? "#fff" : s.color}
+              fontSize={isHighlighted ? fontSize * 1.15 : fontSize}
               fontWeight={s.font_bold || isHighlighted ? "bold" : "normal"}
-              opacity={isHighlighted ? 1 : 0.5}
-              style={isHighlighted ? { animation: "blink-text 0.8s ease-in-out infinite" } : undefined}
+              opacity={isHighlighted ? 1 : dimTextOpacity}
             >
               {displayName}
             </text>
@@ -155,9 +187,17 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
 
         {/* 기본 정보 */}
         <div className="space-y-[clamp(0.5rem,1vh,0.8rem)]">
-          <h2 className="text-[clamp(1.5rem,3.5vw,2.2rem)] font-bold leading-tight">
-            {book.title}
-          </h2>
+          <div className="flex items-start justify-between gap-2">
+            <h2 className="text-[clamp(1.5rem,3.5vw,2.2rem)] font-bold leading-tight min-w-0">
+              {book.title}
+            </h2>
+            <Badge
+              variant={book.is_available ? "default" : "outline"}
+              className={`shrink-0 text-[clamp(0.9rem,2vw,1.2rem)] px-3 py-1.5 ${!book.is_available ? "bg-black text-white border-black" : ""}`}
+            >
+              {book.is_available ? "대출 가능" : "대출 중"}
+            </Badge>
+          </div>
           <p className="text-[clamp(1.1rem,2.5vw,1.6rem)] text-muted-foreground">
             {book.author}
           </p>
@@ -166,14 +206,6 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
               출판사: {book.publisher}
             </p>
           )}
-          <div className="flex items-center gap-2">
-            <Badge
-              variant={book.is_available ? "default" : "outline"}
-              className={`text-[clamp(0.95rem,2.1vw,1.25rem)] px-3.5 py-1.5 ${!book.is_available ? "bg-black text-white border-black" : ""}`}
-            >
-              {book.is_available ? "대출 가능" : "대출 중"}
-            </Badge>
-          </div>
           {book.avg_rating !== null && (
             <p className="text-[clamp(1rem,2.2vw,1.4rem)]">
               {"★".repeat(Math.round(book.avg_rating))}{" "}
@@ -184,23 +216,27 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
           )}
         </div>
 
-        {/* 설명 */}
-        {book.description && (
-          <p className="text-[clamp(0.95rem,2.1vw,1.3rem)] text-muted-foreground leading-relaxed">
-            {book.description}
-          </p>
+        {/* 도서 위치 - 크게 강조 */}
+        {book.location_group && (
+          <div className="flex items-center justify-center gap-2 rounded-xl bg-primary/10 border-2 border-primary py-[clamp(1rem,2.5vh,1.6rem)] px-4">
+            <MapPin className="size-[clamp(1.6rem,4vw,2.4rem)] text-primary shrink-0" />
+            <span className="text-[clamp(1.8rem,5vw,3rem)] font-bold text-primary">
+              {book.location_group}
+            </span>
+          </div>
         )}
 
-        {/* 서가 위치 안내 - 대출 가능일 때만 표시 */}
-        {book.is_available && <div className="rounded-lg border bg-muted/30 p-[clamp(1rem,2.5vw,1.5rem)]">
+        {/* 서가 위치 안내 - 항상 표시 */}
+        <div className="rounded-lg border bg-muted/30 p-[clamp(1rem,2.5vw,1.5rem)]">
           <div className="flex items-center gap-2 mb-2">
             <MapPin className="size-[clamp(1.1rem,2.5vw,1.5rem)] text-primary" />
             <span className="text-[clamp(1rem,2.2vw,1.4rem)] font-semibold">서가 위치</span>
           </div>
-          <p className="text-[clamp(1.1rem,2.5vw,1.6rem)]">{book.location_group}</p>
-          <p className="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-primary mt-1">
-            {book.location_detail}
-          </p>
+          {book.location_detail && (
+            <p className="text-[clamp(1.5rem,4vw,2.5rem)] font-bold text-primary mt-1">
+              {book.location_detail}
+            </p>
+          )}
 
           {/* SVG 미니 서가 맵 */}
           {shelves.length > 0 && (
@@ -210,11 +246,11 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
                 onClick={() => { setMapOpen(true); setMapScale(1); setMapPos({ x: 0, y: 0 }); }}
               >
                 <svg
-                  viewBox={`0 0 ${vbW} ${vbH}`}
-                  className="w-full max-h-[200px] rounded"
+                  viewBox={miniViewBox}
+                  className="w-full max-h-[240px] rounded"
                   style={{ background: "hsl(var(--muted))" }}
                 >
-                  {shelfSvgContent}
+                  {renderShelfSvg(false)}
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 transition-colors rounded">
                   <Maximize2 className="size-6 text-white opacity-0 group-hover:opacity-80 transition-opacity drop-shadow" />
@@ -290,7 +326,7 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
                         transformOrigin: "center center",
                       }}
                     >
-                      {shelfSvgContent}
+                      {renderShelfSvg(true)}
                     </svg>
                   </div>
 
@@ -321,7 +357,17 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
               )}
             </>
           )}
-        </div>}
+        </div>
+
+        {/* 설명 (서가 위치 아래) */}
+        {book.description && (
+          <div className="space-y-1.5">
+            <span className="text-[clamp(1rem,2.2vw,1.4rem)] font-semibold">책 소개</span>
+            <p className="text-[clamp(0.95rem,2.1vw,1.3rem)] text-muted-foreground leading-relaxed">
+              {book.description}
+            </p>
+          </div>
+        )}
 
         {/* 추천 도서 */}
         {recommended.length > 0 && (

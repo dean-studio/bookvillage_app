@@ -273,4 +273,10 @@
     max-height: 16mm !important;
     max-width: 100% !important;
   }
+  /* 로고 인쇄: 스티커 가득 채우기 */
+  .logo-print .barcode-label img {
+    max-height: 26mm !important;
+    max-width: 43mm !important;
+    width: auto !important;
+  }
 }

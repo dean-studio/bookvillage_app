@@ -18,6 +18,7 @@ type JellyHistoryItem = {
 function jellyReasonLabel(reason: string): string {
   switch (reason) {
     case "checkout": return "도서 대출";
+    case "checkout_cancel": return "대여 취소";
     case "return": return "도서 반납";
     case "report": return "독서록 작성";
     case "quiz": return "퀴즈 정답";

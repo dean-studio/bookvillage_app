@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>수기 대여 작성 안내 (인쇄용)</title>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'Pretendard', -apple-system, sans-serif;
+    color: #1a1a1a;
+    background: #e5e5e5;
+    line-height: 1.5;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page {
+    width: 210mm;
+    height: 297mm;
+    background: #fff;
+    margin: 12px auto;
+    padding: 15mm 16mm 12mm;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+    overflow: hidden;
+  }
+  .page::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 12mm;
+    background: linear-gradient(90deg, #f5b400, #f7c948);
+  }
+
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 5mm;
+    padding-bottom: 4mm;
+    border-bottom: 3px solid #f5b400;
+  }
+  .header img.logo { width: 52px; height: 52px; object-fit: contain; border-radius: 12px; }
+  .header .titles h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; }
+  .header .titles p { font-size: 14px; color: #666; margin-top: 3px; font-weight: 500; }
+
+  .lead {
+    margin-top: 5mm;
+    background: #fffbe9;
+    border: 2px solid #f7dd8a;
+    border-radius: 14px;
+    padding: 13px 20px;
+    font-size: 18px;
+    font-weight: 700;
+    text-align: center;
+    color: #5a4500;
+  }
+  .lead b { color: #c98a00; }
+
+  .section-title {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 21px; font-weight: 800; color: #c98a00;
+    margin: 5mm 0 9px;
+  }
+  .section-title .num {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 32px; height: 32px; background: #f5b400; color: #fff;
+    border-radius: 50%; font-size: 17px; font-weight: 800; flex-shrink: 0;
+  }
+
+  /* 작성 항목 (2×2 그리드) */
+  .fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .field {
+    display: flex; align-items: center; gap: 16px;
+    border: 2px solid #eee; border-radius: 14px;
+    padding: 9px 18px;
+  }
+  .field .badge {
+    flex-shrink: 0; width: 36px; height: 36px;
+    background: #f5b400; color: #fff; border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 19px; font-weight: 800;
+  }
+  .field .fc h3 { font-size: 19px; font-weight: 800; }
+  .field .fc p { font-size: 14px; color: #666; margin-top: 1px; }
+
+  /* 예시 표 */
+  .example { margin-top: 4mm; }
+  table.ex {
+    width: 100%; border-collapse: collapse; margin-top: 9px;
+    font-size: 16px;
+  }
+  table.ex th, table.ex td {
+    border: 2px solid #e0e0e0; padding: 8px 10px; text-align: center;
+  }
+  table.ex th { background: #f5b400; color: #fff; font-weight: 800; font-size: 15px; }
+  table.ex td.book { text-align: left; padding-left: 16px; }
+  table.ex .hand { font-family: 'Nanum Pen Script', cursive; }
+  table.ex tr:nth-child(even) td { background: #fffdf5; }
+
+  .rules { margin-top: 5mm; display: flex; flex-direction: column; gap: 8px; }
+  .rule {
+    display: flex; gap: 14px; align-items: center;
+    padding: 12px 20px; border-radius: 14px;
+    font-size: 17px; font-weight: 600;
+  }
+  .rule.ok { background: #f0fbf3; border: 2px solid #bfe6c9; }
+  .rule.no { background: #fff5f5; border: 2px solid #ffd0d0; }
+  .rule .ic { font-size: 24px; flex-shrink: 0; }
+  .rule b { font-weight: 800; }
+  .rule.ok b { color: #2b9e4b; }
+  .rule.no b { color: #d33; }
+
+  .footer {
+    margin-top: auto;
+    text-align: center; font-size: 15px; color: #888;
+    padding-top: 4mm; border-top: 2px dashed #ddd;
+  }
+  .footer .big { font-size: 18px; font-weight: 800; color: #c98a00; }
+  .footer .small { font-size: 13px; margin-top: 5px; }
+
+  @page portrait-pg { size: A4 portrait; margin: 0; }
+
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; box-shadow: none; page: portrait-pg; }
+    .no-print { display: none !important; }
+  }
+  .toolbar {
+    position: fixed; top: 12px; right: 12px;
+    background: #f5b400; color: #fff; border: none;
+    padding: 12px 20px; border-radius: 10px; font-size: 15px; font-weight: 700;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.2); font-family: inherit;
+  }
+</style>
+</head>
+<body>
+
+<button class="toolbar no-print" onclick="window.print()">🖨️ 인쇄하기</button>
+
+<div class="page">
+  <div class="header">
+    <img class="logo" src="/logo.png" alt="자람도서관" />
+    <div class="titles">
+      <h1>✍️ 수기 대여 작성 안내</h1>
+      <p>앱 사용이 어려우신 분은 아래 노트에 적어주세요</p>
+    </div>
+  </div>
+
+  <div class="lead">
+    📱 <b>휴대폰이 편하신 분</b>은 QR코드로 <b>앱 대여</b>를,<br/>
+    ✍️ <b>손으로 적으실 분</b>은 아래 <b>노트</b>에 작성해 주세요.
+  </div>
+
+  <div class="section-title"><span class="num">1</span>이렇게 적어주세요</div>
+  <div class="fields">
+    <div class="field"><span class="badge">1</span><div class="fc"><h3>동 · 호수</h3><p>예) 101동 1203호</p></div></div>
+    <div class="field"><span class="badge">2</span><div class="fc"><h3>이름</h3><p>대여하시는 분의 이름</p></div></div>
+    <div class="field"><span class="badge">3</span><div class="fc"><h3>연락처</h3><p>연체 안내를 위한 휴대폰 번호</p></div></div>
+    <div class="field"><span class="badge">4</span><div class="fc"><h3>책 제목</h3><p>빌리는 책의 제목 (한 칸에 하나씩)</p></div></div>
+  </div>
+
+  <div class="example">
+    <div class="section-title" style="margin-bottom:0;"><span class="num">2</span>작성 예시</div>
+    <table class="ex">
+      <tr>
+        <th style="width:22%;">동·호수</th>
+        <th style="width:16%;">이름</th>
+        <th style="width:26%;">연락처</th>
+        <th>책 제목</th>
+      </tr>
+      <tr><td>101동 1203호</td><td>홍길동</td><td>010-1234-5678</td><td class="book">흥부와 놀부</td></tr>
+      <tr><td>101동 1203호</td><td>홍길동</td><td>010-1234-5678</td><td class="book">신비아파트 1</td></tr>
+    </table>
+  </div>
+
+  <div class="rules">
+    <div class="rule ok"><span class="ic">✅</span><div>글씨는 <b>또박또박</b>, 책 제목은 <b>한 칸에 하나씩</b> 적어주세요</div></div>
+    <div class="rule no"><span class="ic">🚫</span><div>한 줄에 <b>여러 권을 몰아서</b> 쓰면 반납 확인이 어려워요</div></div>
+  </div>
+
+  <div class="footer">
+    <div class="big">📚 반납일은 대여일로부터 14일! 꼭 지켜주세요</div>
+    <div class="small">반납한 책은 원래 있던 서가 제자리에 꽂아주세요 · 감사합니다 😊 — 자람도서관 —</div>
+  </div>
+</div>
+
+</body>
+</html>

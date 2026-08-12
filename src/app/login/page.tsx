@@ -2,25 +2,26 @@
 
 import { useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { signInByDongHo, signUp, checkPhoneExists } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
 import { PrivacyTermsModal } from "@/components/privacy-terms-modal";
-import { Loader2, ChevronLeft, Check } from "lucide-react";
+import { Loader2, ChevronLeft, Check, ShieldCheck, BellRing, Gift, Lock } from "lucide-react";
 
 const PIN_LENGTH = 4;
 
 type SiteType = "apartment" | "school" | "village";
 
 type LoginStep = "l-dong" | "l-ho" | "pin";
-type SignupStep = "s-terms" | "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin" | "s-confirm";
+type SignupStep = "s-terms" | "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin" | "s-pin-confirm" | "s-confirm";
 type Step = LoginStep | SignupStep;
 
 const SIGNUP_STEPS_MAP: Record<SiteType, SignupStep[]> = {
-  apartment: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
-  school: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-confirm"],
-  village: ["s-terms", "s-name", "s-phone", "s-dong", "s-pin", "s-confirm"],
+  apartment: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-pin-confirm", "s-confirm"],
+  school: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-pin-confirm", "s-confirm"],
+  village: ["s-terms", "s-name", "s-phone", "s-dong", "s-pin", "s-pin-confirm", "s-confirm"],
 };
 
 export default function LoginPage() {
@@ -29,6 +30,7 @@ export default function LoginPage() {
 
   const [phone, setPhone] = useState("");
   const [pin, setPin] = useState("");
+  const [firstPin, setFirstPin] = useState(""); // 회원가입 PIN 1차 입력값 (재입력 검증용)
   const [name, setName] = useState("");
   const [dong, setDong] = useState("");
   const [ho, setHo] = useState("");
@@ -63,9 +65,9 @@ export default function LoginPage() {
   // ?signup=1 로 진입하면 회원가입 모드로 시작
   useEffect(() => {
     if (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("signup") === "1") {
-      setMode("signup");
-      setStep("s-terms");
+      startSignup();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function getSignupStepIndex(s: Step): number {
@@ -79,7 +81,7 @@ export default function LoginPage() {
     !isTextInput && (
       step === "pin" ||
       step === "l-dong" || step === "l-ho" ||
-      step === "s-phone" || step === "s-pin" ||
+      step === "s-phone" || step === "s-pin" || step === "s-pin-confirm" ||
       step === "s-dong" || step === "s-ho"
     );
 
@@ -87,14 +89,30 @@ export default function LoginPage() {
     if (isPending) return;
     if (step === "s-phone" && phone.length < 11) {
       setPhone((prev) => prev + num);
-    } else if ((step === "pin" || step === "s-pin") && pin.length < PIN_LENGTH) {
+    } else if ((step === "pin" || step === "s-pin" || step === "s-pin-confirm") && pin.length < PIN_LENGTH) {
       const newPin = pin + num;
       setPin(newPin);
       if (newPin.length === PIN_LENGTH) {
         if (step === "pin") {
           handleLogin(newPin);
+        } else if (step === "s-pin") {
+          // 1차 입력 완료 → 재입력 단계로
+          setFirstPin(newPin);
+          setPin("");
+          setError(null);
+          setStep("s-pin-confirm");
         } else {
-          setStep("s-confirm");
+          // 재입력(s-pin-confirm) 완료 → 일치 검증
+          if (newPin === firstPin) {
+            setError(null);
+            setStep("s-confirm");
+          } else {
+            // 불일치: 1차 입력부터 다시
+            setError("비밀번호가 일치하지 않습니다. 다시 설정해주세요.");
+            setPin("");
+            setFirstPin("");
+            setStep("s-pin");
+          }
         }
       }
     } else if ((step === "s-dong" || step === "l-dong") && dong.length < 4) {
@@ -108,7 +126,7 @@ export default function LoginPage() {
     if (isPending) return;
     if (step === "s-phone") {
       setPhone((prev) => prev.slice(0, -1));
-    } else if (step === "pin" || step === "s-pin") {
+    } else if (step === "pin" || step === "s-pin" || step === "s-pin-confirm") {
       setPin((prev) => prev.slice(0, -1));
     } else if (step === "s-dong" || step === "l-dong") {
       setDong((prev) => prev.slice(0, -1));
@@ -174,15 +192,24 @@ export default function LoginPage() {
       }
     } else {
       if (step === "s-confirm") {
+        // 확인 → PIN 재설정부터 다시
         setPin("");
+        setFirstPin("");
+        setStep("s-pin");
+      } else if (step === "s-pin-confirm") {
+        // 재입력 → 1차 입력으로
+        setPin("");
+        setFirstPin("");
         setStep("s-pin");
       } else {
         setPin("");
+        setFirstPin("");
         const idx = getSignupStepIndex(step);
         if (idx > 0) {
           setStep(signupSteps[idx - 1]);
         } else {
-          resetToLogin();
+          // 회원가입 첫 단계에서 이전 → 홈으로 이동
+          router.push("/");
         }
       }
     }
@@ -193,6 +220,7 @@ export default function LoginPage() {
     setStep("l-dong");
     setPhone("");
     setPin("");
+    setFirstPin("");
     setName("");
     setDong("");
     setHo("");
@@ -205,6 +233,7 @@ export default function LoginPage() {
     setStep("s-terms");
     setPhone("");
     setPin("");
+    setFirstPin("");
     setName("");
     setDong("");
     setHo("");
@@ -308,6 +337,7 @@ export default function LoginPage() {
       case "s-name": return "이름을 입력하세요";
       case "s-phone": return "휴대폰 번호를 입력하세요";
       case "s-pin": return "비밀번호 4자리를 설정하세요";
+      case "s-pin-confirm": return "비밀번호를 한 번 더 입력하세요";
       case "s-confirm": return "입력한 정보를 확인해주세요";
     }
     return "";
@@ -347,13 +377,14 @@ export default function LoginPage() {
 
   const signupIdx = getSignupStepIndex(step);
   const showProgress = mode === "signup" && signupIdx >= 0 && step !== "s-confirm";
-  const isPinStep = step === "pin" || step === "s-pin";
+  const isPinStep = step === "pin" || step === "s-pin" || step === "s-pin-confirm";
+  const isPinConfirmStep = step === "s-pin-confirm";
   const isConfirmStep = step === "s-confirm";
 
   const numpadBtnClass = "h-[8.5vh] min-h-16 transition-transform duration-75 active:scale-90 active:brightness-90";
 
   return (
-    <div className="flex h-dvh flex-col">
+    <div className={`flex h-dvh flex-col transition-colors duration-300 ${isPinConfirmStep ? "bg-sky-50 dark:bg-sky-950/40" : ""}`}>
       {kakaoChannelId && settingsLoaded && (
         <a
           href={`https://pf.kakao.com/${kakaoChannelId}/chat`}
@@ -374,19 +405,15 @@ export default function LoginPage() {
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
             </div>
           ) : (
-            <div className={`flex flex-col items-center gap-[1vh] transition-opacity duration-500 ${logoReady ? "opacity-100" : "opacity-0"}`}>
-              {logoUrl && (
-                <img
-                  src={logoUrl}
-                  alt=""
-                  className="max-h-16 object-contain"
-                  onLoad={() => setLogoReady(true)}
-                />
-              )}
-              {apartmentName && (
-                <p className="text-[clamp(1rem,2.5vw,1.5rem)] text-muted-foreground">{apartmentName}</p>
-              )}
-            </div>
+            <Link href="/" className={`flex flex-col items-center transition-opacity duration-500 active:opacity-70 ${logoReady ? "opacity-100" : "opacity-0"}`}>
+              <img
+                src={logoUrl || "/logo.png"}
+                alt={apartmentName || "도서관"}
+                className="max-h-20 object-contain"
+                onLoad={() => setLogoReady(true)}
+                onError={() => setLogoReady(true)}
+              />
+            </Link>
           )}
 
           {showProgress && (
@@ -396,14 +423,21 @@ export default function LoginPage() {
               </p>
               <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-primary rounded-full transition-all duration-300"
+                  className={`h-full rounded-full transition-all duration-300 ${isPinConfirmStep ? "bg-sky-500" : "bg-primary"}`}
                   style={{ width: `${((signupIdx + 1) / signupSteps.length) * 100}%` }}
                 />
               </div>
             </div>
           )}
 
-          <p className="text-[clamp(1.6rem,4vw,2.4rem)] font-bold">{getTitle()}</p>
+          {isPinConfirmStep && (
+            <div className="flex items-center gap-2 rounded-full bg-sky-500 px-[clamp(1rem,3vw,1.4rem)] py-[clamp(0.4rem,1vh,0.6rem)] -mb-[1vh]">
+              <Check className="size-[clamp(1.1rem,2.5vw,1.4rem)] text-white" strokeWidth={3} />
+              <span className="text-[clamp(0.95rem,2.3vw,1.2rem)] font-bold text-white">비밀번호 확인</span>
+            </div>
+          )}
+
+          <p className={`text-[clamp(1.6rem,4vw,2.4rem)] font-bold text-center ${isPinConfirmStep ? "text-sky-600 dark:text-sky-400" : ""}`}>{getTitle()}</p>
 
           {error && !isConfirmStep && (
             <div className="w-full max-w-sm rounded-lg bg-destructive/10 px-4 py-3 text-center">
@@ -485,10 +519,16 @@ export default function LoginPage() {
               {Array.from({ length: PIN_LENGTH }).map((_, i) => (
                 <div
                   key={i}
-                  className="w-[clamp(1.5rem,4vw,2.5rem)] h-[clamp(1.5rem,4vw,2.5rem)] rounded-full border-2 border-foreground transition-colors"
+                  className={`w-[clamp(1.5rem,4vw,2.5rem)] h-[clamp(1.5rem,4vw,2.5rem)] rounded-full border-2 transition-colors ${
+                    isPinConfirmStep ? "border-sky-500" : "border-foreground"
+                  }`}
                   style={{
                     backgroundColor:
-                      i < pin.length ? "var(--foreground)" : "transparent",
+                      i < pin.length
+                        ? isPinConfirmStep
+                          ? "var(--color-sky-500, #0ea5e9)"
+                          : "var(--foreground)"
+                        : "transparent",
                   }}
                 />
               ))}
@@ -548,32 +588,60 @@ export default function LoginPage() {
 
           {/* 약관 동의 (회원가입 첫 단계) */}
           {step === "s-terms" && (
-            <div className="w-full max-w-sm space-y-[3vh]">
+            <div className="w-full max-w-sm space-y-[2.5vh]">
+              {/* 환영 헤더 */}
+              <div className="flex flex-col items-center gap-[1vh]">
+                <div className="flex items-center justify-center rounded-full bg-primary/10" style={{ width: "clamp(4rem,14vw,5.5rem)", height: "clamp(4rem,14vw,5.5rem)" }}>
+                  <ShieldCheck className="size-[clamp(2rem,7vw,3rem)] text-primary" strokeWidth={2} />
+                </div>
+                <p className="text-[clamp(1rem,2.5vw,1.35rem)] text-muted-foreground text-center leading-snug">
+                  가입 전, 개인정보 이용 안내를<br />확인해 주세요
+                </p>
+              </div>
+
+              {/* 개인정보 이용 목적 요약 */}
+              <div className="rounded-xl border bg-card p-[clamp(1.1rem,3vw,1.6rem)] space-y-[clamp(0.9rem,2vh,1.3rem)]">
+                {[
+                  { icon: BellRing, title: "대여·연체 안내", desc: "반납일과 연체 알림을 보내드려요" },
+                  { icon: Gift, title: "이벤트 참여", desc: "포인트 적립·경품 이벤트에 활용해요" },
+                  { icon: Lock, title: "안전한 보관", desc: "동·호수·연락처는 도서관 운영에만 사용해요" },
+                ].map((it) => (
+                  <div key={it.title} className="flex items-start gap-[clamp(0.7rem,2vw,1rem)]">
+                    <div className="flex-shrink-0 flex items-center justify-center rounded-lg bg-primary/10" style={{ width: "clamp(2.4rem,6.5vw,3rem)", height: "clamp(2.4rem,6.5vw,3rem)" }}>
+                      <it.icon className="size-[clamp(1.3rem,3.5vw,1.7rem)] text-primary" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-[clamp(1.05rem,2.6vw,1.35rem)] font-semibold leading-tight">{it.title}</p>
+                      <p className="text-[clamp(0.9rem,2.2vw,1.15rem)] text-muted-foreground leading-snug mt-0.5">{it.desc}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
               <button
                 type="button"
                 onClick={() => setAgreedTerms((v) => !v)}
-                className="flex items-start gap-3 w-full text-left rounded-xl border-2 p-[clamp(1.1rem,2.5vw,1.5rem)] active:bg-muted/50 transition-colors"
+                className="flex items-center gap-3 w-full text-left rounded-xl border-2 p-[clamp(1.1rem,2.5vw,1.5rem)] active:bg-muted/50 transition-colors"
                 style={{ borderColor: agreedTerms ? "var(--primary)" : undefined }}
               >
                 <span
-                  className={`mt-0.5 flex-shrink-0 flex items-center justify-center rounded-md border-2 transition-colors ${
+                  className={`flex-shrink-0 flex items-center justify-center rounded-md border-2 transition-colors ${
                     agreedTerms ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40"
                   }`}
                   style={{ width: "clamp(1.6rem,4.5vw,2.1rem)", height: "clamp(1.6rem,4.5vw,2.1rem)" }}
                 >
                   {agreedTerms && <Check className="size-[clamp(1.1rem,3vw,1.5rem)]" strokeWidth={3} />}
                 </span>
-                <span className="text-[clamp(1.05rem,2.6vw,1.35rem)] leading-snug">
+                <span className="text-[clamp(1.05rem,2.6vw,1.35rem)] leading-snug flex-1">
                   <span className="font-semibold">[필수]</span> 개인정보 수집·이용에 동의합니다
                 </span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setTermsOpen(true)}
-                className="w-full text-center underline text-muted-foreground text-[clamp(0.95rem,2.3vw,1.2rem)] py-1"
-              >
-                약관 전문 보기
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); setTermsOpen(true); }}
+                  className="flex-shrink-0 underline text-muted-foreground text-[clamp(0.85rem,2vw,1.05rem)]"
+                >
+                  전문
+                </button>
               </button>
 
               {error && (
@@ -606,8 +674,8 @@ export default function LoginPage() {
         {/* 하단 영역: 숫자패드 (화면 하단 고정) */}
         {isNumpadStep && (
           <div className="w-full max-w-md flex-shrink-0 pb-[1vh]">
-            {/* 회원가입 numpad 단계에 이전 버튼 */}
-            {mode === "signup" && hasNextButton && (
+            {/* 이전 버튼: 회원가입 입력 단계 + 로그인 호수/비번 단계 */}
+            {((mode === "signup" && (hasNextButton || step === "s-pin-confirm")) || (mode === "login" && (step === "l-ho" || step === "pin"))) && (
               <button
                 onClick={handleBack}
                 className="flex items-center gap-1 text-[clamp(1rem,2.2vw,1.3rem)] text-muted-foreground mb-[0.5vh] px-1 active:text-foreground transition-colors"
@@ -666,16 +734,7 @@ export default function LoginPage() {
           </div>
         )}
 
-        {/* 회원가입 / 로그인 전환 링크 */}
-        {mode === "login" && (step === "l-dong" || step === "l-ho" || step === "pin") && (
-          <Button
-            variant="link"
-            className="text-[clamp(1rem,2.5vw,1.4rem)] flex-shrink-0 py-[1vh]"
-            onClick={startSignup}
-          >
-            처음이신가요? 회원가입
-          </Button>
-        )}
+        {/* 회원가입 → 로그인 전환 링크 */}
         {mode === "signup" && step === "s-name" && (
           <Button
             variant="link"

@@ -37,7 +37,7 @@ export default function BarcodesPage() {
 
   function generateAuto() {
     setError("");
-    const n = Math.min(Math.max(parseInt(count, 10) || 1, 1), 200);
+    const n = Math.min(Math.max(parseInt(count, 10) || 1, 1), 1000);
     startGenerate(async () => {
       const result = await generateBarcodes(n);
       if (result.success && result.data) {
@@ -53,7 +53,7 @@ export default function BarcodesPage() {
       .split(/[\n,]/)
       .map((s) => s.trim())
       .filter(Boolean)
-      .slice(0, 200);
+      .slice(0, 1000);
     setCodes(list);
   }
 
@@ -91,7 +91,7 @@ export default function BarcodesPage() {
           </p>
           <div className="flex items-end gap-3">
             <div className="space-y-1.5 w-40">
-              <label className="text-sm font-medium">수량 (최대 200)</label>
+              <label className="text-sm font-medium">수량 (최대 1000)</label>
               <Input
                 type="number"
                 value={count}

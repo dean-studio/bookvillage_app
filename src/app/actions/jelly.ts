@@ -256,6 +256,19 @@ export async function awardJellyForReturn(userId: string, bookTitle: string, boo
   if (amount > 0) await awardJelly(userId, amount, 'return', bookTitle, bookId)
 }
 
+// 대여 취소 시 대출 젤리 회수 (지급 시와 동일 금액 차감, 잔액 0 미만 방지)
+export async function awardJellyForCancel(userId: string, bookTitle: string, bookId: string) {
+  const amount = await getJellySettingValue('jelly_checkout', 5)
+  if (amount <= 0) return
+  const { data: balance } = await supabaseAdmin
+    .from('jelly_balances')
+    .select('balance')
+    .eq('user_id', userId)
+    .single()
+  const deduct = Math.min(amount, balance?.balance ?? 0)
+  if (deduct > 0) await awardJelly(userId, -deduct, 'checkout_cancel', bookTitle, bookId)
+}
+
 export async function awardJellyForReport(userId: string, bookTitle: string, bookId: string) {
   const amount = await getJellySettingValue('jelly_report', 10)
   if (amount > 0) await awardJelly(userId, amount, 'report', bookTitle, bookId)

@@ -25,6 +25,7 @@ import {
 import { createBook, checkBarcodeExists, generateBarcodes } from "@/app/actions/books";
 import { getCurrentUser } from "@/app/actions/auth";
 import { uploadBookCoverImage } from "@/lib/storage";
+import { hangulToLatinKeys } from "@/lib/utils";
 
 interface BookInfo {
   title: string;
@@ -52,7 +53,8 @@ const EMPTY: BookInfo = {
 };
 
 function normalizeSelfBarcode(input: string): string {
-  const s = input.trim();
+  // 리더기가 한글 IME 상태로 찍은 경우(BV→ㅠㅍ) 영문으로 복원
+  const s = hangulToLatinKeys(input).trim();
   if (!s) return "";
   if (/^\d+$/.test(s)) return `BV${s.padStart(6, "0")}`;
   const m = s.match(/^BV0*(\d+)$/i);
@@ -70,11 +72,14 @@ export default function ManualRegisterPage({
 
   const [book, setBook] = useState<BookInfo>(EMPTY);
   const [customBarcode, setCustomBarcode] = useState("");
+  const [isbnInput, setIsbnInput] = useState(""); // 실제 도서 ISBN 직접 입력
   const [locationDetail, setLocationDetail] = useState("");
   const [rentalDays, setRentalDays] = useState("");
 
   const [barcodeCheck, setBarcodeCheck] = useState<"idle" | "checking" | "available" | "taken">("idle");
   const [barcodeCheckTitle, setBarcodeCheckTitle] = useState("");
+  const [isbnCheck, setIsbnCheck] = useState<"idle" | "checking" | "available" | "taken">("idle");
+  const [isbnCheckTitle, setIsbnCheckTitle] = useState("");
 
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -115,6 +120,24 @@ export default function ManualRegisterPage({
     }, 500);
     return () => clearTimeout(t);
   }, [customBarcode]);
+
+  // ISBN 직접 입력 중복 자동 검색 (디바운스)
+  useEffect(() => {
+    const raw = isbnInput.trim();
+    if (!raw) { setIsbnCheck("idle"); setIsbnCheckTitle(""); return; }
+    setIsbnCheck("checking");
+    const t = setTimeout(async () => {
+      const existing = await checkBarcodeExists(raw);
+      if (existing.exists) {
+        setIsbnCheck("taken");
+        setIsbnCheckTitle(existing.book?.title || "");
+      } else {
+        setIsbnCheck("available");
+        setIsbnCheckTitle("");
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [isbnInput]);
 
   async function uploadCover(file: File) {
     setIsUploading(true);
@@ -158,15 +181,23 @@ export default function ManualRegisterPage({
     if (!book.title.trim()) { setError("도서명을 입력해주세요."); return; }
     setError("");
     startRegister(async () => {
-      let finalBarcode = customBarcode.trim() ? normalizeSelfBarcode(customBarcode) : "";
-      if (!finalBarcode) {
+      const isbn = isbnInput.trim();
+      const custom = customBarcode.trim();
+      // 우선순위: ISBN 직접 입력 > 자체 바코드 > 자동 발급
+      let finalBarcode = "";
+      if (isbn) {
+        finalBarcode = isbn; // 실제 도서 ISBN 그대로
+      } else if (custom) {
+        finalBarcode = normalizeSelfBarcode(custom);
+      } else {
         const gen = await generateBarcodes(1);
         if (gen.success && gen.data?.codes[0]) finalBarcode = gen.data.codes[0];
         else { setError("바코드 자동 생성 실패"); return; }
       }
+      // 이미 등록된 바코드(ISBN 포함)인지 유효성 체크
       const existing = await checkBarcodeExists(finalBarcode);
       if (existing.exists) {
-        setError(`이미 사용 중인 바코드입니다: ${finalBarcode} (${existing.book?.title || ""})`);
+        setError(`이미 등록된 도서입니다: ${finalBarcode} (${existing.book?.title || ""})`);
         return;
       }
       setConfirmBarcode(finalBarcode);
@@ -184,7 +215,7 @@ export default function ManualRegisterPage({
       fd.set("publisher", book.publisher);
       fd.set("cover_image", book.cover_image);
       fd.set("description", book.description);
-      fd.set("isbn", book.isbn || "");
+      fd.set("isbn", isbnInput.trim() || book.isbn || "");
       fd.set("translators", book.translators || "");
       fd.set("published_at", book.published_at || "");
       fd.set("price", String(book.price || 0));
@@ -202,6 +233,7 @@ export default function ManualRegisterPage({
       setSuccess(`"${book.title}" 등록 완료 (${confirmBarcode})`);
       setBook(EMPTY);
       setCustomBarcode("");
+      setIsbnInput("");
       setLocationDetail("");
       setRentalDays("");
       setBarcodeCheck("idle");
@@ -289,7 +321,7 @@ export default function ManualRegisterPage({
 
           <hr />
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="space-y-3">
             {/* 자체 바코드 */}
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-blue-600">자체 바코드</label>
@@ -300,6 +332,7 @@ export default function ManualRegisterPage({
                 onBlur={() => { const n = normalizeSelfBarcode(customBarcode); if (n) setCustomBarcode(n); }}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); const n = normalizeSelfBarcode(customBarcode); if (n) setCustomBarcode(n); } }}
                 className="h-10"
+                disabled={!!isbnInput.trim()}
               />
               {customBarcode.trim() ? (
                 <p className="text-xs flex items-center gap-1">
@@ -311,6 +344,26 @@ export default function ManualRegisterPage({
               ) : (
                 <p className="text-xs text-muted-foreground">비워두면 자동 발급 (BV…)</p>
               )}
+            </div>
+            {/* ISBN 직접 입력 */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-emerald-600">실제 도서 ISBN (검색 안 되는 도서용)</label>
+              <Input
+                placeholder="예: 9788912345678"
+                value={isbnInput}
+                onChange={(e) => setIsbnInput(e.target.value.replace(/[^0-9Xx]/g, ""))}
+                className="h-10"
+                inputMode="numeric"
+                disabled={!!customBarcode.trim()}
+              />
+              {isbnInput.trim() && (
+                <p className="text-xs flex items-center gap-1">
+                  {isbnCheck === "checking" && <Loader2 className="size-3 animate-spin text-muted-foreground" />}
+                  {isbnCheck === "available" && <span className="text-green-600 font-medium">✓ 사용가능</span>}
+                  {isbnCheck === "taken" && <span className="text-destructive font-medium">✗ 이미 등록됨{isbnCheckTitle ? ` (${isbnCheckTitle})` : ""}</span>}
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground">책 뒷면 ISBN 바코드를 그대로 등록합니다. 자체 바코드와 함께 쓸 수 없어요.</p>
             </div>
             {/* 상세 위치 */}
             <div className="space-y-1.5">
@@ -327,7 +380,7 @@ export default function ManualRegisterPage({
             </div>
           </div>
 
-          <Button className="w-full h-12 text-base font-semibold" onClick={openConfirm} disabled={isRegistering || !book.title.trim() || barcodeCheck === "taken"}>
+          <Button className="w-full h-12 text-base font-semibold" onClick={openConfirm} disabled={isRegistering || !book.title.trim() || barcodeCheck === "taken" || isbnCheck === "taken"}>
             {isRegistering ? <Loader2 className="size-4 mr-1 animate-spin" /> : <BookPlus className="size-4 mr-1" />}
             등록하기
           </Button>

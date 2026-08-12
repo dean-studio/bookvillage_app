@@ -1,15 +1,22 @@
 "use client";
 
-import { useState, useEffect, useTransition } from "react";
+import { useState, useEffect, useTransition, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   Table,
   TableBody,
@@ -25,9 +32,14 @@ import {
   Loader2,
   History,
   Sparkles,
+  Pencil,
+  Camera,
+  X,
 } from "lucide-react";
-import { getBookById, setBookFeatured, unsetBookFeatured } from "@/app/actions/books";
+import { getBookById, setBookFeatured, unsetBookFeatured, updateBook } from "@/app/actions/books";
 import { getBookRentals } from "@/app/actions/rentals";
+import { getShelves } from "@/app/actions/shelves";
+import { uploadBookCoverImage } from "@/lib/storage";
 import type { Book } from "@/types";
 
 type BookDetail = Book & { avg_rating: number | null; review_count: number; featured_until?: string | null; created_by_name?: string | null };
@@ -43,7 +55,16 @@ export default function AdminBookDetailPage() {
   const [isLoading, startTransition] = useTransition();
   const [isFeaturing, startFeaturing] = useTransition();
 
-  useEffect(() => {
+  // 수정 다이얼로그
+  const [editOpen, setEditOpen] = useState(false);
+  const [ef, setEf] = useState({ title: "", author: "", publisher: "", location_group: "", location_detail: "", description: "", cover_image: "" });
+  const [shelfNames, setShelfNames] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [isSaving, startSave] = useTransition();
+  const editFileRef = useRef<HTMLInputElement>(null);
+
+  function loadBook() {
     startTransition(async () => {
       const [bookData, rentalData] = await Promise.all([
         getBookById(bookId),
@@ -52,7 +73,63 @@ export default function AdminBookDetailPage() {
       if (bookData) setBook(bookData as BookDetail);
       setRentals(rentalData);
     });
+  }
+
+  useEffect(() => {
+    loadBook();
+    getShelves().then((data) => {
+      setShelfNames((data as { name: string; type: string }[]).filter((s) => s.type !== "label").map((s) => s.name));
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
+
+  function openEdit() {
+    if (!book) return;
+    setEf({
+      title: book.title || "",
+      author: book.author || "",
+      publisher: book.publisher || "",
+      location_group: book.location_group || "",
+      location_detail: book.location_detail || "",
+      description: book.description || "",
+      cover_image: book.cover_image || "",
+    });
+    setEditError("");
+    setEditOpen(true);
+  }
+
+  async function handleEditUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setIsUploading(true);
+    try {
+      const url = await uploadBookCoverImage(file);
+      if (url) setEf((p) => ({ ...p, cover_image: url }));
+      else setEditError("이미지 업로드에 실패했습니다.");
+    } finally {
+      setIsUploading(false);
+      if (editFileRef.current) editFileRef.current.value = "";
+    }
+  }
+
+  function handleSaveEdit() {
+    if (!ef.title.trim()) { setEditError("도서명을 입력해주세요."); return; }
+    setEditError("");
+    startSave(async () => {
+      const fd = new FormData();
+      fd.set("title", ef.title);
+      fd.set("author", ef.author);
+      fd.set("publisher", ef.publisher);
+      fd.set("location_group", ef.location_group);
+      fd.set("location_detail", ef.location_detail);
+      fd.set("description", ef.description);
+      fd.set("cover_image", ef.cover_image);
+      const result = await updateBook(bookId, fd);
+      if (!result.success) { setEditError(result.error || "수정에 실패했습니다."); return; }
+      setEditOpen(false);
+      loadBook();
+    });
+  }
 
   if (isLoading && !book) {
     return (
@@ -85,7 +162,13 @@ export default function AdminBookDetailPage() {
       {/* 도서 정보 */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">도서 정보</CardTitle>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">도서 정보</CardTitle>
+            <Button variant="outline" size="sm" onClick={openEdit}>
+              <Pencil className="size-4 mr-1" />
+              정보 수정
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-4">
@@ -297,6 +380,89 @@ export default function AdminBookDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 도서 정보 수정 다이얼로그 */}
+      <input ref={editFileRef} type="file" accept="image/*" className="hidden" onChange={handleEditUpload} />
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="sm:max-w-lg max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-xl">도서 정보 수정</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              {/* 표지 */}
+              <div className="flex flex-col items-center gap-2 shrink-0">
+                {ef.cover_image ? (
+                  <div className="relative">
+                    <img src={ef.cover_image} alt="" className="w-24 h-32 object-cover rounded border" />
+                    <button type="button" className="absolute -top-2 -right-2 bg-background border rounded-full p-0.5" onClick={() => setEf((p) => ({ ...p, cover_image: "" }))}>
+                      <X className="size-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <button type="button" onClick={() => editFileRef.current?.click()} disabled={isUploading}
+                    className="w-24 h-32 rounded border-2 border-dashed border-muted-foreground/30 flex flex-col items-center justify-center gap-1 hover:border-primary/50 transition-colors">
+                    {isUploading ? <Loader2 className="size-5 animate-spin text-muted-foreground" /> : (<><Camera className="size-5 text-muted-foreground" /><span className="text-[10px] text-muted-foreground">표지</span></>)}
+                  </button>
+                )}
+                {ef.cover_image && (
+                  <Button variant="ghost" size="sm" className="text-xs h-7" onClick={() => editFileRef.current?.click()} disabled={isUploading}>변경</Button>
+                )}
+              </div>
+              {/* 기본 정보 */}
+              <div className="flex-1 space-y-2.5 min-w-0">
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">도서명 *</label>
+                  <Input value={ef.title} onChange={(e) => setEf((p) => ({ ...p, title: e.target.value }))} className="h-10" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">저자</label>
+                  <Input value={ef.author} onChange={(e) => setEf((p) => ({ ...p, author: e.target.value }))} className="h-10" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">출판사</label>
+                  <Input value={ef.publisher} onChange={(e) => setEf((p) => ({ ...p, publisher: e.target.value }))} className="h-10" />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1">
+                <label className="text-sm font-medium">서가</label>
+                <select
+                  value={ef.location_group}
+                  onChange={(e) => setEf((p) => ({ ...p, location_group: e.target.value }))}
+                  className="w-full h-10 rounded-md border bg-background px-3 text-sm"
+                >
+                  <option value="">선택 안 함</option>
+                  {shelfNames.map((n) => <option key={n} value={n}>{n}</option>)}
+                  {ef.location_group && !shelfNames.includes(ef.location_group) && (
+                    <option value={ef.location_group}>{ef.location_group}</option>
+                  )}
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-sm font-medium">상세 위치</label>
+                <Input value={ef.location_detail} onChange={(e) => setEf((p) => ({ ...p, location_detail: e.target.value }))} className="h-10" placeholder="예: A-3" />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-sm font-medium">설명</label>
+              <textarea value={ef.description} onChange={(e) => setEf((p) => ({ ...p, description: e.target.value }))} className="w-full min-h-24 rounded-md border bg-background px-3 py-2 text-sm" />
+            </div>
+
+            {editError && <p className="text-sm text-destructive">{editError}</p>}
+
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1 h-11" onClick={() => setEditOpen(false)} disabled={isSaving}>취소</Button>
+              <Button className="flex-1 h-11 font-semibold" onClick={handleSaveEdit} disabled={isSaving || !ef.title.trim()}>
+                {isSaving ? <Loader2 className="size-4 mr-1 animate-spin" /> : null}저장
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

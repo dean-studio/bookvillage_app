@@ -12,27 +12,58 @@ interface BookListParams {
   available?: boolean
   page?: number
   limit?: number
+  sort?: 'recent' | 'title_asc' | 'title_desc'
 }
 
 export async function getBooks(params: BookListParams = {}) {
-  const { q, available, page = 1, limit = 20 } = params
+  const { q, available, page = 1, limit = 20, sort = 'recent' } = params
   const supabase = await createClient()
-  const offset = (page - 1) * limit
 
+  // 공통 필터 적용 함수
+  const applyFilters = <T extends { or: (f: string) => T; eq: (c: string, v: unknown) => T }>(query: T): T => {
+    let x = query
+    if (q) {
+      const terms = q.trim().split(/\s+/).filter(Boolean)
+      const esc = (s: string) => s.replace(/[%_,]/g, "")
+      for (const term of terms) {
+        const loose = esc(term).split("").join("%")
+        x = x.or(`title.ilike.%${loose}%,author.ilike.%${term}%`)
+      }
+    }
+    if (available !== undefined) x = x.eq('is_available', available)
+    return x
+  }
+
+  // 가나다순/역순: 자연 정렬(전천당 1,2,3...10)을 위해 전체를 받아 JS로 정렬 후 페이지 슬라이스
+  if (sort === 'title_asc' || sort === 'title_desc') {
+    let base = supabase.from('books').select('*', { count: 'exact' }).eq('is_deleted', false)
+    base = applyFilters(base as never) as never
+    const { data, count, error } = await base.limit(2000)
+    if (error) return { books: [], totalCount: 0, currentPage: page, totalPages: 0 }
+    const collator = new Intl.Collator('ko', { numeric: true, sensitivity: 'base' })
+    const sorted = (data ?? []).sort((a: { title: string }, b: { title: string }) => {
+      const cmp = collator.compare(a.title || '', b.title || '')
+      return sort === 'title_asc' ? cmp : -cmp
+    })
+    const totalCount = count ?? sorted.length
+    const offset = (page - 1) * limit
+    return {
+      books: sorted.slice(offset, offset + limit),
+      totalCount,
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit),
+    }
+  }
+
+  // 최신순: DB 정렬 + 페이지네이션
+  const offset = (page - 1) * limit
   let query = supabase
     .from('books')
     .select('*', { count: 'exact' })
     .eq('is_deleted', false)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
-
-  if (q) {
-    query = query.or(`title.ilike.%${q}%,author.ilike.%${q}%`)
-  }
-
-  if (available !== undefined) {
-    query = query.eq('is_available', available)
-  }
+  query = applyFilters(query as never) as never
 
   const { data: books, count, error } = await query
 
@@ -216,7 +247,7 @@ export async function generateBarcodes(
     return { success: false, error: '권한이 없습니다.' }
   }
 
-  const n = Math.min(Math.max(Math.floor(count) || 0, 1), 200)
+  const n = Math.min(Math.max(Math.floor(count) || 0, 1), 1000)
   const supabase = await createClient()
 
   // 기존 자체 바코드(BV...) 중 최대 일련번호 조회 (소프트삭제 포함 — 충돌 방지)

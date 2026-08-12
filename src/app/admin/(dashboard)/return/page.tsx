@@ -19,8 +19,9 @@ import {
   AlertCircle,
   Camera,
   X,
+  Search,
 } from "lucide-react";
-import { returnBook } from "@/app/actions/rentals";
+import { returnBook, getActiveRentals } from "@/app/actions/rentals";
 
 interface ReturnResult {
   book: { title: string; barcode: string };
@@ -40,6 +41,24 @@ export default function AdminReturnPage() {
   // Scanner state
   const [scanning, setScanning] = useState(false);
   const scannerRef = useRef<unknown>(null);
+
+  // 제목 검색 반납 state
+  type ActiveRental = Awaited<ReturnType<typeof getActiveRentals>>[number];
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<ActiveRental[]>([]);
+  const [isSearching, startSearch] = useTransition();
+  const [searched, setSearched] = useState(false);
+
+  const handleSearch = () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    setError("");
+    startSearch(async () => {
+      const data = await getActiveRentals({ query: q });
+      setSearchResults(data);
+      setSearched(true);
+    });
+  };
 
   const handleReturn = (barcodeValue?: string) => {
     const code = barcodeValue || barcode.trim();
@@ -65,6 +84,9 @@ export default function AdminReturnPage() {
     setBarcode("");
     setResult(null);
     setError("");
+    setSearchQuery("");
+    setSearchResults([]);
+    setSearched(false);
   };
 
   // --- Scanner ---
@@ -211,6 +233,70 @@ export default function AdminReturnPage() {
         </Card>
       )}
 
+      {/* 제목으로 검색해서 반납 */}
+      {!result && !scanning && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">제목으로 검색해서 반납</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
+                <Input
+                  placeholder="도서명 또는 대여자 이름으로 검색"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                  className="h-12 md:h-10 pl-10"
+                />
+              </div>
+              <Button
+                className="h-12 md:h-10 px-6"
+                disabled={!searchQuery.trim() || isSearching}
+                onClick={handleSearch}
+              >
+                {isSearching ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Search className="size-4 mr-2" />}
+                검색
+              </Button>
+            </div>
+
+            {searched && searchResults.length === 0 && !isSearching && (
+              <p className="text-center text-muted-foreground py-6 text-sm">
+                대여 중인 도서 중 검색 결과가 없습니다.
+              </p>
+            )}
+
+            {searchResults.length > 0 && (
+              <div className="space-y-2">
+                {searchResults.map((r) => (
+                  <div
+                    key={r.id}
+                    className="flex items-center justify-between gap-3 border rounded-lg p-3"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-medium truncate">{r.book.title}</p>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {r.user.name} · {r.user.dong_ho} · <span className="font-mono">{r.book.barcode}</span>
+                      </p>
+                    </div>
+                    <Button
+                      size="sm"
+                      className="shrink-0"
+                      disabled={isPending}
+                      onClick={() => handleReturn(r.book.barcode)}
+                    >
+                      {isPending ? <Loader2 className="size-4 mr-1 animate-spin" /> : <CheckCircle2 className="size-4 mr-1" />}
+                      반납
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* 반납 완료 + 서가 위치 안내 (inline) */}
       {result && (
         <Card className="border-green-200 bg-green-50 dark:border-green-900 dark:bg-green-950">
@@ -250,8 +336,8 @@ export default function AdminReturnPage() {
               </div>
             </div>
 
-            <Button variant="outline" className="w-full h-12" onClick={handleReset}>
-              다음 반납 처리
+            <Button variant="outline" className="w-full h-12" onClick={() => { handleReset(); startScanning(); }}>
+              다음 반납 처리 (카메라 열기)
             </Button>
           </CardContent>
         </Card>

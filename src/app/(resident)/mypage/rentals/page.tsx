@@ -1,15 +1,19 @@
 "use client";
 
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   BookOpen,
   AlertTriangle,
   ChevronLeft,
+  X,
+  Loader2,
 } from "lucide-react";
-import { getMyRentals } from "@/app/actions/rentals";
-import { useQuery } from "@tanstack/react-query";
+import { getMyRentals, cancelMyRental } from "@/app/actions/rentals";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 type ActiveRental = {
   id: string;
@@ -24,8 +28,21 @@ function formatShortDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("ko-KR", { month: "short", day: "numeric", timeZone: "Asia/Seoul" });
 }
 
+function kstDateStr(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+}
+
+// 대여 당일이면 취소 가능
+function isCancelable(rentedAt: string): boolean {
+  return kstDateStr(rentedAt) === new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+}
+
 export default function MyRentalsPage() {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [confirmTarget, setConfirmTarget] = useState<ActiveRental | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
+  const [isPending, startTransition] = useTransition();
 
   const { data: rentals = [], isLoading } = useQuery({
     queryKey: ["myRentals"],
@@ -36,6 +53,21 @@ export default function MyRentalsPage() {
   });
 
   const overdueCount = rentals.filter((r) => r.is_overdue).length;
+
+  const handleCancel = () => {
+    if (!confirmTarget) return;
+    setErrorMsg("");
+    startTransition(async () => {
+      const res = await cancelMyRental(confirmTarget.id);
+      if (res.success) {
+        setConfirmTarget(null);
+        await queryClient.invalidateQueries({ queryKey: ["myRentals"] });
+        await queryClient.invalidateQueries({ queryKey: ["mypage"] });
+      } else {
+        setErrorMsg(res.error ?? "대여 취소에 실패했습니다.");
+      }
+    });
+  };
 
   if (isLoading) {
     return (
@@ -128,12 +160,68 @@ export default function MyRentalsPage() {
                       </div>
                     </div>
                   </div>
+                  {/* 대여 당일이면 취소 버튼 */}
+                  {isCancelable(rental.rented_at) && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setErrorMsg(""); setConfirmTarget(rental); }}
+                      className="mt-[clamp(0.6rem,1.2vh,1rem)] w-full flex items-center justify-center gap-1.5 rounded-lg border border-destructive/40 text-destructive py-[clamp(0.6rem,1.2vh,0.9rem)] text-[clamp(0.9rem,2vw,1.15rem)] font-medium active:bg-destructive/10 transition-colors"
+                    >
+                      <X className="size-[clamp(1rem,2.2vw,1.3rem)]" />
+                      대여 취소
+                    </button>
+                  )}
                 </CardContent>
               </Card>
             ))}
           </>
         )}
       </main>
+
+      {/* 대여 취소 확인 다이얼로그 */}
+      {confirmTarget && (
+        <div
+          className="fixed inset-0 z-[160] bg-black/50 flex items-end sm:items-center justify-center p-4"
+          onClick={(e) => { if (e.target === e.currentTarget && !isPending) setConfirmTarget(null); }}
+        >
+          <div className="w-full max-w-md rounded-2xl bg-background p-[clamp(1.2rem,4vw,2rem)] space-y-[clamp(0.8rem,2vh,1.2rem)]">
+            <div className="flex items-start gap-3">
+              <div className="shrink-0 rounded-full bg-destructive/10 p-2.5">
+                <AlertTriangle className="size-[clamp(1.4rem,3vw,1.8rem)] text-destructive" />
+              </div>
+              <div className="min-w-0">
+                <h2 className="text-[clamp(1.2rem,3vw,1.6rem)] font-bold">대여를 취소할까요?</h2>
+                <p className="text-[clamp(0.9rem,2vw,1.15rem)] text-muted-foreground mt-1 line-clamp-2">
+                  「{confirmTarget.book.title}」
+                </p>
+              </div>
+            </div>
+            <p className="text-[clamp(0.85rem,1.9vw,1.1rem)] text-muted-foreground leading-relaxed">
+              대여 기록이 삭제되고 대출 시 받은 젤리는 회수됩니다. 이 작업은 되돌릴 수 없습니다.
+            </p>
+            {errorMsg && (
+              <p className="text-[clamp(0.85rem,1.9vw,1.1rem)] text-destructive font-medium">{errorMsg}</p>
+            )}
+            <div className="flex gap-2 pt-1">
+              <Button
+                variant="outline"
+                className="flex-1 h-[clamp(3rem,6vh,3.8rem)] text-[clamp(1rem,2.2vw,1.3rem)]"
+                disabled={isPending}
+                onClick={() => setConfirmTarget(null)}
+              >
+                닫기
+              </Button>
+              <Button
+                variant="destructive"
+                className="flex-1 h-[clamp(3rem,6vh,3.8rem)] text-[clamp(1rem,2.2vw,1.3rem)]"
+                disabled={isPending}
+                onClick={handleCancel}
+              >
+                {isPending ? <Loader2 className="size-5 animate-spin" /> : "대여 취소"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

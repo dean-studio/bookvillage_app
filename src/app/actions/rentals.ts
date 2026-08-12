@@ -4,8 +4,9 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkoutSchema, returnSchema } from '@/lib/validations/books'
 import { getCurrentUser } from '@/app/actions/auth'
+import { phoneToEmail, pinToPassword } from '@/lib/validations/auth'
 import { getKSTNow, getKSTDateString, getKSTDateAfterDays } from '@/lib/date'
-import { awardJellyForCheckout, awardJellyForReturn } from '@/app/actions/jelly'
+import { awardJellyForCheckout, awardJellyForReturn, awardJellyForCancel } from '@/app/actions/jelly'
 import type { ActionResult } from '@/types'
 
 async function getSettingValue(supabase: Awaited<ReturnType<typeof createClient>>, key: string, defaultValue: number): Promise<number> {
@@ -138,6 +139,131 @@ export async function checkoutBook(formData: FormData): Promise<ActionResult<Che
   }
 }
 
+// 비회원(게스트) 대출: 이름·동호수·전화번호로 게스트 프로필 확보 후 대출
+export async function checkoutBookGuest(formData: FormData): Promise<ActionResult<CheckoutResult>> {
+  const admin = await getCurrentUser()
+  if (!admin || admin.role !== 'admin') {
+    return { success: false, error: '권한이 없습니다.' }
+  }
+
+  const name = String(formData.get('name') ?? '').trim()
+  const dong_ho = String(formData.get('dong_ho') ?? '').trim()
+  const phoneRaw = String(formData.get('phone_number') ?? '').replace(/\D/g, '')
+  const barcode = String(formData.get('barcode') ?? '').trim()
+  const rentedDate = String(formData.get('rented_at') ?? '').trim() // YYYY-MM-DD (선택)
+
+  if (!name) return { success: false, error: '이름을 입력해주세요.' }
+  if (!dong_ho) return { success: false, error: '동/호수를 입력해주세요.' }
+  if (!/^\d{10,11}$/.test(phoneRaw)) return { success: false, error: '전화번호를 정확히 입력해주세요.' }
+  if (!barcode) return { success: false, error: '도서 바코드를 입력해주세요.' }
+  if (rentedDate && !/^\d{4}-\d{2}-\d{2}$/.test(rentedDate)) {
+    return { success: false, error: '대출일 형식이 올바르지 않습니다.' }
+  }
+
+  // 1) 전화번호로 기존 프로필 조회 (회원이든 이전 게스트든 기록 연결)
+  let userId: string | null = null
+  const { data: existing } = await supabaseAdmin
+    .from('profiles')
+    .select('id')
+    .eq('phone_number', phoneRaw)
+    .maybeSingle()
+
+  if (existing) {
+    userId = existing.id
+    // 최신 이름/동호수로 갱신 (종이에 적은 정보 반영)
+    await supabaseAdmin.from('profiles').update({ name, dong_ho }).eq('id', userId)
+  } else {
+    // 2) 게스트 auth 계정 + 프로필 자동 생성 (임의 비밀번호 — 본인 로그인 시 재설정/재가입)
+    const randomPin = String(Math.floor(1000 + (Date.now() % 9000)))
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
+      email: phoneToEmail(phoneRaw),
+      password: pinToPassword(randomPin),
+      email_confirm: true,
+    })
+    if (authError || !authData.user) {
+      return { success: false, error: '게스트 등록에 실패했습니다.' }
+    }
+    const { error: profileError } = await supabaseAdmin.from('profiles').insert({
+      id: authData.user.id,
+      phone_number: phoneRaw,
+      name,
+      dong_ho,
+      is_guest: true,
+    })
+    if (profileError) {
+      await supabaseAdmin.auth.admin.deleteUser(authData.user.id)
+      return { success: false, error: '게스트 프로필 생성에 실패했습니다.' }
+    }
+    userId = authData.user.id
+  }
+
+  // 3) 대출 처리 (게스트는 젤리 미지급 — 단순 대여/반납만 관리)
+  const supabase = await createClient()
+
+  const { data: book } = await supabase
+    .from('books')
+    .select('id, title, barcode, is_available, rental_days')
+    .eq('barcode', barcode)
+    .eq('is_deleted', false)
+    .single()
+
+  if (!book) return { success: false, error: '존재하지 않는 바코드입니다.' }
+  if (!book.is_available) return { success: false, error: '이미 대출 중인 도서입니다.' }
+
+  // 비회원은 연체/권수 제한 없이 단순 대여 처리 (관리자 수기 관리)
+  const defaultRentalDays = await getSettingValue(supabase, 'rental_days', 14)
+  const rentalDays = book.rental_days ?? defaultRentalDays
+
+  // 대출일 지정 시: 그 날짜 기준으로 rented_at·due_date 계산. 미지정 시 오늘.
+  let rentedAtIso: string | undefined
+  let dueDateStr: string
+  if (rentedDate) {
+    rentedAtIso = new Date(`${rentedDate}T00:00:00+09:00`).toISOString()
+    const due = new Date(`${rentedDate}T00:00:00+09:00`)
+    due.setDate(due.getDate() + rentalDays)
+    dueDateStr = due.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' })
+  } else {
+    dueDateStr = getKSTDateAfterDays(rentalDays)
+  }
+
+  const insertRow: {
+    book_id: string
+    user_id: string
+    due_date: string
+    checked_out_by: string
+    rented_at?: string
+  } = {
+    book_id: book.id,
+    user_id: userId,
+    due_date: dueDateStr,
+    checked_out_by: admin.id,
+  }
+  if (rentedAtIso) insertRow.rented_at = rentedAtIso
+
+  const { data: rental, error } = await supabase
+    .from('rentals')
+    .insert(insertRow)
+    .select('id, rented_at, due_date')
+    .single()
+
+  if (error) {
+    return { success: false, error: '대출 처리에 실패했습니다.' }
+  }
+
+  // 게스트는 젤리 지급 없음
+
+  return {
+    success: true,
+    data: {
+      id: rental.id,
+      book: { title: book.title, barcode: book.barcode },
+      user: { name, dong_ho },
+      rented_at: rental.rented_at,
+      due_date: rental.due_date,
+    },
+  }
+}
+
 export async function returnBook(formData: FormData): Promise<ActionResult<ReturnResult>> {
   const admin = await getCurrentUser()
   if (!admin || admin.role !== 'admin') {
@@ -214,46 +340,77 @@ export async function returnBook(formData: FormData): Promise<ActionResult<Retur
   }
 }
 
-export async function getReturnedRentals(limit = 50) {
+export async function getReturnedRentals(params?: {
+  startDate?: string // 반납일 기준
+  endDate?: string
+  query?: string
+  page?: number
+  pageSize?: number
+}) {
   const user = await getCurrentUser()
-  if (!user || user.role !== 'admin') return []
+  if (!user || user.role !== 'admin') return { rows: [], totalCount: 0, page: 1, totalPages: 0 }
 
-  const { data } = await supabaseAdmin
+  const page = params?.page ?? 1
+  const pageSize = params?.pageSize ?? 20
+
+  // 검색어가 있으면 도서/대여자에서 매칭되는 id를 먼저 찾아 필터
+  const kw = params?.query?.trim()
+  let matchBookIds: string[] | null = null
+  let matchUserIds: string[] | null = null
+  if (kw) {
+    const [{ data: mb }, { data: mp }] = await Promise.all([
+      supabaseAdmin.from('books').select('id').or(`title.ilike.%${kw}%,barcode.ilike.%${kw}%`),
+      supabaseAdmin.from('profiles').select('id').or(`name.ilike.%${kw}%,dong_ho.ilike.%${kw}%`),
+    ])
+    matchBookIds = (mb ?? []).map((b) => b.id)
+    matchUserIds = (mp ?? []).map((p) => p.id)
+  }
+
+  let base = supabaseAdmin
     .from('rentals')
-    .select('id, returned_at, returned_by, due_date, book_id, user_id')
+    .select('id, returned_at, returned_by, due_date, book_id, user_id', { count: 'exact' })
     .not('returned_at', 'is', null)
+
+  if (params?.startDate) base = base.gte('returned_at', params.startDate)
+  if (params?.endDate) base = base.lte('returned_at', params.endDate + 'T23:59:59')
+
+  if (kw) {
+    // 도서 또는 대여자 매칭
+    const ors: string[] = []
+    if (matchBookIds && matchBookIds.length) ors.push(`book_id.in.(${matchBookIds.join(',')})`)
+    if (matchUserIds && matchUserIds.length) ors.push(`user_id.in.(${matchUserIds.join(',')})`)
+    if (ors.length === 0) return { rows: [], totalCount: 0, page, totalPages: 0 }
+    base = base.or(ors.join(','))
+  }
+
+  const from = (page - 1) * pageSize
+  const { data, count } = await base
     .order('returned_at', { ascending: false })
-    .limit(limit)
+    .range(from, from + pageSize - 1)
 
-  if (!data || data.length === 0) return []
+  if (!data || data.length === 0) {
+    return { rows: [], totalCount: count ?? 0, page, totalPages: Math.ceil((count ?? 0) / pageSize) }
+  }
 
-  // 도서 정보
   const bookIds = [...new Set(data.map((r) => r.book_id))]
-  const { data: books } = await supabaseAdmin
-    .from('books')
-    .select('id, title, barcode')
-    .in('id', bookIds)
-  const bookMap = Object.fromEntries((books ?? []).map((b) => [b.id, b]))
-
-  // 대출자 + 반납 처리자 프로필
   const userIds = [...new Set([
     ...data.map((r) => r.user_id),
     ...data.filter((r) => r.returned_by).map((r) => r.returned_by!),
   ])]
-  const { data: profiles } = await supabaseAdmin
-    .from('profiles')
-    .select('id, name, dong_ho')
-    .in('id', userIds)
+  const [{ data: books }, { data: profiles }] = await Promise.all([
+    supabaseAdmin.from('books').select('id, title, barcode').in('id', bookIds),
+    supabaseAdmin.from('profiles').select('id, name, dong_ho').in('id', userIds),
+  ])
+  const bookMap = Object.fromEntries((books ?? []).map((b) => [b.id, b]))
   const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]))
 
-  return data.map((r) => {
+  const rows = data.map((r) => {
     const book = bookMap[r.book_id]
     const borrower = profileMap[r.user_id]
     const returnedByProfile = r.returned_by ? profileMap[r.returned_by] : null
     const dueDate = new Date(r.due_date)
     const returnedDate = new Date(r.returned_at!)
     const overdueDays = Math.max(0, Math.floor((returnedDate.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)))
-
     return {
       id: r.id,
       book_title: book?.title ?? '알 수 없음',
@@ -267,6 +424,124 @@ export async function getReturnedRentals(limit = 50) {
       returned_by_name: returnedByProfile?.name ?? null,
     }
   })
+
+  return { rows, totalCount: count ?? 0, page, totalPages: Math.ceil((count ?? 0) / pageSize) }
+}
+
+// 기간별 대여 도서 목록 (대출일 rented_at 기준, 반납 여부 무관)
+export async function getRentalsByPeriod(params?: {
+  startDate?: string // YYYY-MM-DD
+  endDate?: string
+  query?: string
+  status?: 'all' | 'active' | 'returned' // 대여중/반납완료 필터
+  page?: number
+  pageSize?: number
+}) {
+  const user = await getCurrentUser()
+  if (!user || user.role !== 'admin') {
+    return { rows: [], totalCount: 0, page: 1, totalPages: 0, activeCount: 0, returnedCount: 0, uniqueUsers: 0 }
+  }
+
+  const page = params?.page ?? 1
+  const pageSize = params?.pageSize ?? 20
+  const status = params?.status ?? 'all'
+
+  // 검색어가 있으면 도서/대여자에서 매칭되는 id를 먼저 찾아 필터
+  const kw = params?.query?.trim()
+  let matchBookIds: string[] | null = null
+  let matchUserIds: string[] | null = null
+  if (kw) {
+    const [{ data: mb }, { data: mp }] = await Promise.all([
+      supabaseAdmin.from('books').select('id').or(`title.ilike.%${kw}%,barcode.ilike.%${kw}%`),
+      supabaseAdmin.from('profiles').select('id').or(`name.ilike.%${kw}%,dong_ho.ilike.%${kw}%`),
+    ])
+    matchBookIds = (mb ?? []).map((b) => b.id)
+    matchUserIds = (mp ?? []).map((p) => p.id)
+  }
+
+  const applyBase = <T extends { gte: (c: string, v: string) => T; lte: (c: string, v: string) => T; or: (f: string) => T; is: (c: string, v: null) => T; not: (c: string, op: string, v: null) => T }>(q: T): T => {
+    let x = q
+    if (params?.startDate) x = x.gte('rented_at', params.startDate)
+    if (params?.endDate) x = x.lte('rented_at', params.endDate + 'T23:59:59')
+    if (kw) {
+      const ors: string[] = []
+      if (matchBookIds && matchBookIds.length) ors.push(`book_id.in.(${matchBookIds.join(',')})`)
+      if (matchUserIds && matchUserIds.length) ors.push(`user_id.in.(${matchUserIds.join(',')})`)
+      // 매칭 없으면 결과 없음을 유도 (존재하지 않는 id)
+      x = x.or(ors.length ? ors.join(',') : `id.eq.00000000-0000-0000-0000-000000000000`)
+    }
+    return x
+  }
+
+  // 상태별 카운트 (전체 기간 내)
+  const countQuery = (extra?: 'active' | 'returned') => {
+    let q = supabaseAdmin.from('rentals').select('id', { count: 'exact', head: true })
+    q = applyBase(q as never) as never
+    if (extra === 'active') q = q.is('returned_at', null)
+    if (extra === 'returned') q = q.not('returned_at', 'is', null)
+    return q
+  }
+
+  const [{ count: activeCount }, { count: returnedCount }] = await Promise.all([
+    countQuery('active'),
+    countQuery('returned'),
+  ])
+
+  // 기간 내 대여한 고유 이용자 수
+  let uniqueUsers = 0
+  {
+    let uq = supabaseAdmin.from('rentals').select('user_id')
+    uq = applyBase(uq as never) as never
+    const { data: uData } = await uq.limit(20000)
+    uniqueUsers = new Set((uData ?? []).map((r: { user_id: string }) => r.user_id)).size
+  }
+
+  // 목록 조회
+  let base = supabaseAdmin
+    .from('rentals')
+    .select('id, rented_at, returned_at, due_date, book_id, user_id', { count: 'exact' })
+  base = applyBase(base as never) as never
+  if (status === 'active') base = base.is('returned_at', null)
+  if (status === 'returned') base = base.not('returned_at', 'is', null)
+
+  const from = (page - 1) * pageSize
+  const { data, count } = await base
+    .order('rented_at', { ascending: false })
+    .range(from, from + pageSize - 1)
+
+  const totalCount = count ?? 0
+  if (!data || data.length === 0) {
+    return { rows: [], totalCount, page, totalPages: Math.ceil(totalCount / pageSize), activeCount: activeCount ?? 0, returnedCount: returnedCount ?? 0, uniqueUsers }
+  }
+
+  const bookIds = [...new Set(data.map((r) => r.book_id))]
+  const userIds = [...new Set(data.map((r) => r.user_id))]
+  const [{ data: books }, { data: profiles }] = await Promise.all([
+    supabaseAdmin.from('books').select('id, title, barcode').in('id', bookIds),
+    supabaseAdmin.from('profiles').select('id, name, dong_ho, is_guest').in('id', userIds),
+  ])
+  const bookMap = Object.fromEntries((books ?? []).map((b) => [b.id, b]))
+  const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]))
+
+  const rows = data.map((r) => {
+    const book = bookMap[r.book_id]
+    const borrower = profileMap[r.user_id] as { name: string; dong_ho: string; is_guest?: boolean } | undefined
+    return {
+      id: r.id,
+      book_id: r.book_id,
+      user_id: r.user_id,
+      book_title: book?.title ?? '알 수 없음',
+      book_barcode: book?.barcode ?? '',
+      borrower_name: borrower?.name ?? '알 수 없음',
+      borrower_dong_ho: borrower?.dong_ho ?? '',
+      is_guest: !!borrower?.is_guest,
+      rented_at: r.rented_at as string,
+      due_date: r.due_date,
+      returned_at: r.returned_at as string | null,
+    }
+  })
+
+  return { rows, totalCount, page, totalPages: Math.ceil(totalCount / pageSize), activeCount: activeCount ?? 0, returnedCount: returnedCount ?? 0, uniqueUsers }
 }
 
 export async function getMyRentals() {
@@ -345,6 +620,61 @@ export async function getMyRentals() {
   }
 }
 
+// 주민 셀프 대여 취소 (대여 당일에만 가능)
+export async function cancelMyRental(rentalId: string): Promise<ActionResult> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { success: false, error: '로그인이 필요합니다.' }
+
+  // 본인 대여 + 미반납 조회
+  const { data: rental } = await supabase
+    .from('rentals')
+    .select('id, user_id, book_id, rented_at, returned_at')
+    .eq('id', rentalId)
+    .single()
+
+  if (!rental || rental.user_id !== user.id) {
+    return { success: false, error: '취소할 수 있는 대여 기록이 없습니다.' }
+  }
+  if (rental.returned_at) {
+    return { success: false, error: '이미 반납된 도서입니다.' }
+  }
+
+  // 대여 당일에만 취소 가능 (KST 날짜 비교)
+  const rentedDate = new Date(rental.rented_at as string).toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' })
+  if (rentedDate !== getKSTDateString()) {
+    return { success: false, error: '대여 당일에만 취소할 수 있습니다. 반납은 도서관에 문의해 주세요.' }
+  }
+
+  // 도서 제목 조회 (젤리 회수 기록용)
+  const { data: book } = await supabaseAdmin
+    .from('books')
+    .select('title')
+    .eq('id', rental.book_id)
+    .maybeSingle()
+
+  // 대여 기록 완전 삭제 (admin 권한)
+  const { error } = await supabaseAdmin
+    .from('rentals')
+    .delete()
+    .eq('id', rental.id)
+
+  if (error) {
+    return { success: false, error: '대여 취소에 실패했습니다.' }
+  }
+
+  // 도서 상태 대출 가능으로 복구 (DELETE는 트리거가 없음)
+  await supabaseAdmin
+    .from('books')
+    .update({ is_available: true })
+    .eq('id', rental.book_id)
+
+  // 대출 시 지급한 젤리 회수
+  awardJellyForCancel(user.id, book?.title ?? '', rental.book_id).catch(() => {})
+
+  return { success: true }
+}
+
 // 주민용: 바코드로 도서 정보 조회
 export async function lookupBookByBarcode(barcode: string) {
   const supabase = await createClient()
@@ -380,30 +710,129 @@ export async function lookupBookByBarcode(barcode: string) {
   }
 }
 
-export async function getActiveRentals() {
+export async function getActiveRentals(params?: {
+  startDate?: string // YYYY-MM-DD (대출일 기준)
+  endDate?: string
+  query?: string // 대여자 이름 또는 도서명/바코드
+}) {
   const admin = await getCurrentUser()
   if (!admin || admin.role !== 'admin') return []
 
-  const supabase = await createClient()
-  const { data } = await supabase
+  let q = supabaseAdmin
     .from('rentals')
-    .select('id, rented_at, due_date, book:books(id, title, barcode, location_group), user:profiles(id, name, dong_ho, phone_number)')
+    .select('id, rented_at, due_date, book_id, user_id')
     .is('returned_at', null)
     .order('due_date', { ascending: true })
 
+  if (params?.startDate) q = q.gte('rented_at', params.startDate)
+  if (params?.endDate) q = q.lte('rented_at', params.endDate + 'T23:59:59')
+
+  const { data } = await q
+  if (!data || data.length === 0) return []
+
+  const bookIds = [...new Set(data.map((r) => r.book_id))]
+  const userIds = [...new Set(data.map((r) => r.user_id))]
+  const [{ data: books }, { data: profiles }] = await Promise.all([
+    supabaseAdmin.from('books').select('id, title, barcode, location_group').in('id', bookIds),
+    supabaseAdmin.from('profiles').select('id, name, dong_ho, phone_number, is_guest').in('id', userIds),
+  ])
+  const bookMap = Object.fromEntries((books ?? []).map((b) => [b.id, b]))
+  const profileMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, p]))
+
   const today = getKSTNow()
-  return (data ?? []).map((r) => {
+  let rows = data.map((r) => {
     const dueDate = new Date(r.due_date)
     const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24))
     return {
       id: r.id,
-      book: r.book as { id: string; title: string; barcode: string; location_group: string },
-      user: r.user as { id: string; name: string; dong_ho: string; phone_number: string },
+      book: (bookMap[r.book_id] ?? { id: r.book_id, title: '알 수 없음', barcode: '', location_group: '' }) as { id: string; title: string; barcode: string; location_group: string },
+      user: (profileMap[r.user_id] ?? { id: r.user_id, name: '알 수 없음', dong_ho: '', phone_number: '', is_guest: false }) as { id: string; name: string; dong_ho: string; phone_number: string; is_guest: boolean },
       rented_at: r.rented_at as string,
       due_date: r.due_date,
       d_day: diffDays,
     }
   })
+
+  const kw = params?.query?.trim().toLowerCase()
+  if (kw) {
+    rows = rows.filter((r) =>
+      r.user.name.toLowerCase().includes(kw) ||
+      r.user.dong_ho.toLowerCase().includes(kw) ||
+      r.book.title.toLowerCase().includes(kw) ||
+      r.book.barcode.toLowerCase().includes(kw)
+    )
+  }
+  return rows
+}
+
+// 게스트 대출 정보 수정 (대출일/이용자 정보). 게스트만 수정 가능.
+export async function updateGuestRental(formData: FormData): Promise<ActionResult> {
+  const admin = await getCurrentUser()
+  if (!admin || admin.role !== 'admin') {
+    return { success: false, error: '권한이 없습니다.' }
+  }
+
+  const rentalId = String(formData.get('rental_id') ?? '').trim()
+  const name = String(formData.get('name') ?? '').trim()
+  const dong_ho = String(formData.get('dong_ho') ?? '').trim()
+  const phoneRaw = String(formData.get('phone_number') ?? '').replace(/\D/g, '')
+  const rentedDate = String(formData.get('rented_at') ?? '').trim() // YYYY-MM-DD
+
+  if (!rentalId) return { success: false, error: '대출 정보를 찾을 수 없습니다.' }
+  if (!name) return { success: false, error: '이름을 입력해주세요.' }
+  if (!dong_ho) return { success: false, error: '동/호수를 입력해주세요.' }
+  if (!/^\d{10,11}$/.test(phoneRaw)) return { success: false, error: '전화번호를 정확히 입력해주세요.' }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rentedDate)) {
+    return { success: false, error: '대출일 형식이 올바르지 않습니다.' }
+  }
+
+  // 대출 기록 + 이용자 조회
+  const { data: rental } = await supabaseAdmin
+    .from('rentals')
+    .select('id, user_id, book_id, returned_at')
+    .eq('id', rentalId)
+    .maybeSingle()
+
+  if (!rental) return { success: false, error: '대출 정보를 찾을 수 없습니다.' }
+  if (rental.returned_at) return { success: false, error: '이미 반납된 대출은 수정할 수 없습니다.' }
+
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('id, is_guest')
+    .eq('id', rental.user_id)
+    .maybeSingle()
+
+  if (!profile || !profile.is_guest) {
+    return { success: false, error: '비회원(게스트) 대출만 수정할 수 있습니다.' }
+  }
+
+  // 반납예정일 재계산 (도서별 rental_days 반영)
+  const { data: book } = await supabaseAdmin
+    .from('books')
+    .select('rental_days')
+    .eq('id', rental.book_id)
+    .maybeSingle()
+  const supabase = await createClient()
+  const defaultRentalDays = await getSettingValue(supabase, 'rental_days', 14)
+  const rentalDays = book?.rental_days ?? defaultRentalDays
+
+  const rentedAtIso = new Date(`${rentedDate}T00:00:00+09:00`).toISOString()
+  const due = new Date(`${rentedDate}T00:00:00+09:00`)
+  due.setDate(due.getDate() + rentalDays)
+  const dueDateStr = due.toLocaleDateString('en-CA', { timeZone: 'Asia/Seoul' })
+
+  // 이용자 정보 갱신
+  await supabaseAdmin.from('profiles').update({ name, dong_ho, phone_number: phoneRaw }).eq('id', profile.id)
+
+  // 대출 기록 갱신
+  const { error } = await supabaseAdmin
+    .from('rentals')
+    .update({ rented_at: rentedAtIso, due_date: dueDateStr })
+    .eq('id', rentalId)
+
+  if (error) return { success: false, error: '수정에 실패했습니다.' }
+
+  return { success: true }
 }
 
 export async function getBookRentals(bookId: string) {

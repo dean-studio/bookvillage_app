@@ -12,6 +12,7 @@ import {
   BookOpen,
   MapPin,
   ScanBarcode,
+  Search,
   Loader2,
   AlertCircle,
   CheckCircle2,
@@ -24,6 +25,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 import { lookupBookByBarcode, selfCheckout } from "@/app/actions/rentals";
+import { getBooks } from "@/app/actions/books";
 import { getShelves } from "@/app/actions/shelves";
 import { getPopularSearches } from "@/app/actions/recommendations";
 import { getPublicSettings } from "@/app/actions/settings";
@@ -83,9 +85,58 @@ export default function RentPage() {
   const [checkoutResult, setCheckoutResult] = useState<{ book_title: string; due_date: string } | null>(null);
   const [checkoutError, setCheckoutError] = useState("");
   const [cameraBlocked, setCameraBlocked] = useState(false);
+  const [scanToast, setScanToast] = useState("");
   const [rollingIdx, setRollingIdx] = useState(0);
   const [readerMode, setReaderMode] = useState(false);
   const readerInputRef = useRef<HTMLInputElement>(null);
+
+  // 제목 검색으로 대여
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<BookResult[]>([]);
+  const [isSearching, startSearch] = useTransition();
+  const [searchError, setSearchError] = useState("");
+  // 중복 도서(동일 제목 여러 권) 선택 시 바코드 유형 확인
+  const [dupConfirm, setDupConfirm] = useState<BookResult | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  // 최근 검색어 (디바이스 localStorage)
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+
+  const RECENT_KEY = "rent_recent_searches";
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(RECENT_KEY);
+      if (raw) setRecentSearches(JSON.parse(raw));
+    } catch {}
+  }, []);
+
+  function addRecentSearch(q: string) {
+    const term = q.trim();
+    if (!term) return;
+    setRecentSearches((prev) => {
+      const next = [term, ...prev.filter((t) => t !== term)].slice(0, 12);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  function removeRecentSearch(term: string) {
+    setRecentSearches((prev) => {
+      const next = prev.filter((t) => t !== term);
+      try { localStorage.setItem(RECENT_KEY, JSON.stringify(next)); } catch {}
+      return next;
+    });
+  }
+
+  function clearRecentSearches() {
+    setRecentSearches([]);
+    try { localStorage.removeItem(RECENT_KEY); } catch {}
+  }
+
+  const RESVER_READER_ENABLED = false; // 리더기 스캔 버튼 숨김 플래그
+
+  const scanBusyRef = useRef(false); // 조회 중 중복 스캔 방지
+  const scanClosedRef = useRef(false); // 스캔 화면을 사용자가 닫았는지
 
   const { data: popularSearches = [] } = useQuery<PopularSearch[]>({
     queryKey: ["popularSearches"],
@@ -119,6 +170,13 @@ export default function RentPage() {
     }
   }, [readerMode]);
 
+  // 제목 검색 화면 열릴 때 input 포커스 (모바일 키보드 올림)
+  useEffect(() => {
+    if (searchOpen) {
+      setTimeout(() => searchInputRef.current?.focus(), 100);
+    }
+  }, [searchOpen]);
+
   function handleLookup(barcodeValue?: string) {
     const code = barcodeValue || barcode.trim();
     if (!code) return;
@@ -134,7 +192,46 @@ export default function RentPage() {
     });
   }
 
+  // 제목으로 검색
+  function handleTitleSearch(queryOverride?: string) {
+    const q = (queryOverride ?? searchQuery).trim();
+    if (!q) return;
+    if (queryOverride !== undefined) setSearchQuery(q);
+    setSearchError("");
+    startSearch(async () => {
+      const result = await getBooks({ q, limit: 30 });
+      setSearchResults((result.books || []) as unknown as BookResult[]);
+      if (!result.books || result.books.length === 0) {
+        setSearchError("검색 결과가 없습니다.");
+      } else {
+        addRecentSearch(q);
+      }
+    });
+  }
+
+  // 검색 결과에서 도서 선택
+  function selectSearchedBook(b: BookResult) {
+    // 같은 제목의 책이 2권 이상이면 → 바코드 유형(ISBN/자체 BV) 확인 경고
+    const sameTitle = searchResults.filter((r) => r.title === b.title);
+    if (sameTitle.length > 1) {
+      setDupConfirm(b);
+      return;
+    }
+    goToBook(b);
+  }
+
+  function goToBook(b: BookResult) {
+    setDupConfirm(null);
+    setSearchOpen(false);
+    setSearchResults([]);
+    setSearchQuery("");
+    setError("");
+    setBook(b);
+  }
+
   async function startScanning() {
+    scanClosedRef.current = false;
+    scanBusyRef.current = false;
     setScanning(true);
     setError("");
     setBook(null);
@@ -154,14 +251,41 @@ export default function RentPage() {
 
       await html5QrCode.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 280, height: 120 } },
+        {
+          fps: 10,
+          // 풀스크린 뷰파인더에서는 고정 250×100이 상대적으로 너무 작아져 스캔 영역이 어긋남.
+          // 뷰파인더 크기에 비례한 넓은 가로 박스로 계산 (바코드는 가로로 긺).
+          qrbox: (vw: number, vh: number) => {
+            const width = Math.floor(Math.min(vw * 0.9, 500));
+            const height = Math.floor(Math.min(vh * 0.5, Math.max(width * 0.45, 120)));
+            return { width, height };
+          },
+        },
         (decodedText: string) => {
-          html5QrCode.stop().then(() => {
+          // 조회 중이면 중복 스캔 무시
+          if (scanBusyRef.current) return;
+          scanBusyRef.current = true;
+          // admin 등록과 동일: 디코드되면 즉시 카메라 정지 후 조회 (반응 지연 제거)
+          html5QrCode.stop().then(async () => {
             scannerRef.current = null;
-            setScanning(false);
-            setBarcode(decodedText);
-            handleLookup(decodedText);
-          });
+            try {
+              const result = await lookupBookByBarcode(decodedText);
+              if (result.success) {
+                // 도서 찾음 → 도서 정보 표시
+                setScanning(false);
+                setBarcode(decodedText);
+                setError("");
+                setBook(result.data as BookResult);
+              } else {
+                // 미등록 도서 → 토스트 안내 후 스캔 재개
+                setScanToast("등록되지 않은 도서입니다");
+                setTimeout(() => setScanToast(""), 1800);
+                if (!scanClosedRef.current) startScanning();
+              }
+            } catch {
+              if (!scanClosedRef.current) startScanning();
+            }
+          }).catch(() => { scanBusyRef.current = false; });
         },
         () => {}
       );
@@ -171,12 +295,14 @@ export default function RentPage() {
   }
 
   function stopScanning() {
+    scanClosedRef.current = true;
     const scanner = scannerRef.current as { stop: () => Promise<void> } | null;
     if (scanner) {
       scanner.stop().then(() => {
         scannerRef.current = null;
       });
     }
+    scanBusyRef.current = false;
     setScanning(false);
   }
 
@@ -307,6 +433,14 @@ export default function RentPage() {
                     책 뒷면의 바코드를 카메라에 비춰주세요
                   </p>
                 </div>
+                {/* 미등록 도서 토스트 */}
+                {scanToast && (
+                  <div className="absolute top-6 left-4 right-4 flex justify-center pointer-events-none z-20">
+                    <div className="bg-white/95 text-foreground rounded-lg px-4 py-2.5 shadow-lg text-[clamp(0.9rem,2vw,1.15rem)] font-medium text-center">
+                      {scanToast}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* 하단 수동 입력 */}
@@ -422,17 +556,32 @@ export default function RentPage() {
                     휴대폰 카메라로 바코드 스캔
                   </span>
                 </button>
-                {/* 리더기 스캔 */}
+                {/* 리더기 스캔 (현재 숨김) */}
+                {RESVER_READER_ENABLED && (
+                  <button
+                    onClick={() => setReaderMode(true)}
+                    className="flex-1 flex flex-col items-center justify-center gap-[1.5vh] rounded-2xl border-2 border-dashed border-sky-500/50 bg-sky-500/10 hover:bg-sky-500/20 active:scale-[0.98] transition-all cursor-pointer p-6"
+                  >
+                    <ScanBarcode className="size-[clamp(3.5rem,14vw,6rem)] text-sky-600 dark:text-sky-400" />
+                    <span className="text-[clamp(1.5rem,5vw,2.2rem)] font-bold text-sky-600 dark:text-sky-400">
+                      리더기 스캔
+                    </span>
+                    <span className="text-[clamp(0.95rem,2.5vw,1.2rem)] text-muted-foreground text-center">
+                      바코드 리더기로 스캔
+                    </span>
+                  </button>
+                )}
+                {/* 제목으로 검색해서 대여 */}
                 <button
-                  onClick={() => setReaderMode(true)}
+                  onClick={() => { setSearchOpen(true); setSearchError(""); setSearchResults([]); setSearchQuery(""); }}
                   className="flex-1 flex flex-col items-center justify-center gap-[1.5vh] rounded-2xl border-2 border-dashed border-sky-500/50 bg-sky-500/10 hover:bg-sky-500/20 active:scale-[0.98] transition-all cursor-pointer p-6"
                 >
-                  <ScanBarcode className="size-[clamp(3.5rem,14vw,6rem)] text-sky-600 dark:text-sky-400" />
+                  <Search className="size-[clamp(3.5rem,14vw,6rem)] text-sky-600 dark:text-sky-400" />
                   <span className="text-[clamp(1.5rem,5vw,2.2rem)] font-bold text-sky-600 dark:text-sky-400">
-                    리더기 스캔
+                    제목으로 검색
                   </span>
                   <span className="text-[clamp(0.95rem,2.5vw,1.2rem)] text-muted-foreground text-center">
-                    바코드 리더기로 스캔
+                    도서명으로 찾아서 대여
                   </span>
                 </button>
               </div>
@@ -448,6 +597,143 @@ export default function RentPage() {
           </div>
         )}
         </main>
+
+      {/* 제목 검색 풀스크린 */}
+      {searchOpen && (
+        <div className="fixed inset-0 z-[150] bg-background flex flex-col h-dvh">
+          <header className="shrink-0 border-b px-4 py-3 flex items-center justify-between">
+            <span className="text-[clamp(1.1rem,3vw,1.5rem)] font-semibold">제목으로 검색</span>
+            <button onClick={() => { setSearchOpen(false); setSearchResults([]); setSearchQuery(""); setSearchError(""); }} className="p-2 -mr-2 active:opacity-60">
+              <X className="size-7" />
+            </button>
+          </header>
+
+          <div className="shrink-0 p-[clamp(1rem,3vw,1.5rem)] border-b space-y-3">
+            <Input
+              ref={searchInputRef}
+              autoFocus
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") handleTitleSearch(); }}
+              placeholder="도서 제목을 입력하세요"
+              className="h-[clamp(3.2rem,8vh,4.5rem)] !text-[clamp(1.2rem,3.5vw,1.8rem)]"
+            />
+            <Button
+              className="w-full h-[clamp(3.2rem,7vh,4rem)] text-[clamp(1.1rem,2.8vw,1.5rem)] font-semibold"
+              onClick={() => handleTitleSearch()}
+              disabled={!searchQuery.trim() || isSearching}
+            >
+              {isSearching ? <Loader2 className="size-5 mr-2 animate-spin" /> : <Search className="size-5 mr-2" />}
+              검색
+            </Button>
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-[clamp(1rem,3vw,1.5rem)] space-y-2">
+            {/* 최근 검색어 chip (검색 결과가 없을 때) */}
+            {searchResults.length === 0 && !searchError && recentSearches.length > 0 && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-[clamp(0.95rem,2.2vw,1.2rem)] font-semibold text-muted-foreground">최근 검색어</span>
+                  <button onClick={clearRecentSearches} className="text-[clamp(0.85rem,2vw,1.05rem)] text-muted-foreground underline active:opacity-60">
+                    전체 삭제
+                  </button>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {recentSearches.map((term) => (
+                    <span
+                      key={term}
+                      className="inline-flex items-center gap-1.5 rounded-full border bg-muted/40 pl-4 pr-2 py-2 active:bg-muted transition-colors"
+                    >
+                      <button
+                        onClick={() => handleTitleSearch(term)}
+                        className="text-[clamp(0.95rem,2.4vw,1.25rem)] font-medium"
+                      >
+                        {term}
+                      </button>
+                      <button
+                        onClick={() => removeRecentSearch(term)}
+                        className="p-0.5 rounded-full hover:bg-background active:opacity-60"
+                        aria-label="삭제"
+                      >
+                        <X className="size-[clamp(0.9rem,2vw,1.1rem)] text-muted-foreground" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {searchError && (
+              <p className="text-center text-[clamp(1rem,2.5vw,1.3rem)] text-muted-foreground py-8">{searchError}</p>
+            )}
+            {searchResults.map((b) => {
+              const isSelf = b.barcode?.toUpperCase().startsWith("BV");
+              return (
+                <button
+                  key={b.id}
+                  onClick={() => selectSearchedBook(b)}
+                  className="flex gap-3 w-full text-left rounded-xl border p-3 hover:bg-muted/50 active:scale-[0.99] transition-all"
+                >
+                  {b.cover_image ? (
+                    <img src={b.cover_image} alt="" className="w-14 h-20 object-cover rounded shrink-0 bg-muted" />
+                  ) : (
+                    <div className="w-14 h-20 rounded shrink-0 bg-muted flex items-center justify-center"><BookOpen className="size-6 text-muted-foreground/40" /></div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[clamp(1.05rem,2.6vw,1.4rem)] font-semibold line-clamp-2">{b.title}</p>
+                    <p className="text-[clamp(0.9rem,2vw,1.15rem)] text-muted-foreground">{b.author}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <Badge variant={b.is_available ? "default" : "outline"} className={!b.is_available ? "bg-black text-white border-black" : ""}>
+                        {b.is_available ? "대출 가능" : "대출 중"}
+                      </Badge>
+                      <Badge variant="secondary" className="font-mono text-[0.75rem]">
+                        {isSelf ? `자체 ${b.barcode}` : `ISBN ${b.barcode}`}
+                      </Badge>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* 중복 도서: 바코드 유형 확인 경고 */}
+      {dupConfirm && (
+        <div className="fixed inset-0 z-[160] bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-background rounded-2xl w-full max-w-md shadow-xl my-auto max-h-[90vh] flex flex-col">
+            <div className="overflow-y-auto p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="size-7 text-amber-500 shrink-0" />
+                <h2 className="text-[clamp(1.2rem,3vw,1.6rem)] font-bold">같은 제목의 도서가 여러 권 있어요</h2>
+              </div>
+              <p className="text-[clamp(1rem,2.4vw,1.25rem)] text-muted-foreground leading-relaxed">
+                대여하려는 실제 책의 바코드가 아래와 일치하는지 <b className="text-foreground">반드시 확인</b>하세요.
+                책에 붙은 바코드가 <b className="text-foreground">자체 바코드(BV)</b>인지 <b className="text-foreground">ISBN</b>인지 다를 수 있습니다.
+              </p>
+              <div className="rounded-xl border bg-muted/30 p-4 space-y-1">
+                <p className="text-[clamp(1.05rem,2.6vw,1.4rem)] font-semibold">{dupConfirm.title}</p>
+                <p className="text-[clamp(1rem,2.3vw,1.25rem)] font-mono">
+                  {dupConfirm.barcode?.toUpperCase().startsWith("BV")
+                    ? `자체 바코드: ${dupConfirm.barcode}`
+                    : `ISBN: ${dupConfirm.barcode}`}
+                </p>
+                <p className="text-[clamp(0.9rem,2vw,1.1rem)] text-muted-foreground">
+                  위치: {dupConfirm.location_group}{dupConfirm.location_detail ? ` > ${dupConfirm.location_detail}` : ""}
+                </p>
+              </div>
+            </div>
+            {/* 하단 고정 버튼 (스크롤과 무관하게 항상 보임) */}
+            <div className="flex gap-3 p-6 pt-3 border-t bg-background rounded-b-2xl shrink-0">
+              <Button variant="outline" className="flex-1 h-12 text-[clamp(1rem,2.4vw,1.3rem)]" onClick={() => setDupConfirm(null)}>
+                취소
+              </Button>
+              <Button className="flex-1 h-12 text-[clamp(1rem,2.4vw,1.3rem)] font-semibold" onClick={() => goToBook(dupConfirm)}>
+                이 책이 맞아요
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 로딩 모달 */}
       {isLoading && !scanning && (
@@ -543,16 +829,39 @@ export default function RentPage() {
                     const vbW = (maxX - minX) * CELL + PAD * 2;
                     const vbH = (maxY - minY) * CELL + PAD * 2;
 
-                    const shelfSvgContent = (
+                    // 하이라이트 서재를 중심으로 미니맵을 확대해서 보여줄 viewBox 계산
+                    const target = shelves.find((s) => s.type === "shelf" && s.name === book.location_group);
+                    let miniViewBox = `0 0 ${vbW} ${vbH}`;
+                    if (target) {
+                      const tx = (target.position_x - minX) * CELL + PAD;
+                      const ty = (target.position_y - minY) * CELL + PAD;
+                      const tw = target.width * CELL;
+                      const th = target.height * CELL;
+                      // 서재 주변으로 여유(서재 크기의 1.2배)를 두고 확대
+                      const marginX = tw * 1.2;
+                      const marginY = th * 1.2;
+                      let bx = tx - marginX;
+                      let by = ty - marginY;
+                      let bw = tw + marginX * 2;
+                      let bh = th + marginY * 2;
+                      // 전체 맵 범위를 벗어나지 않게 보정, 최소 크기 보장
+                      bw = Math.min(bw, vbW);
+                      bh = Math.min(bh, vbH);
+                      bx = Math.max(0, Math.min(bx, vbW - bw));
+                      by = Math.max(0, Math.min(by, vbH - bh));
+                      miniViewBox = `${bx} ${by} ${bw} ${bh}`;
+                    }
+
+                    const renderShelfSvg = (fullView: boolean) => (
                       <>
                         <style>{`
-                          @keyframes blink-shelf {
-                            0%, 100% { opacity: 1; fill-opacity: 0.35; }
-                            50% { opacity: 0.3; fill-opacity: 0.1; }
+                          @keyframes pulse-shelf {
+                            0%, 100% { stroke-width: 4; }
+                            50% { stroke-width: 8; }
                           }
-                          @keyframes blink-text {
-                            0%, 100% { opacity: 1; }
-                            50% { opacity: 0.3; }
+                          @keyframes pulse-glow {
+                            0%, 100% { opacity: 0.25; transform: scale(1); }
+                            50% { opacity: 0.6; transform: scale(1.04); }
                           }
                         `}</style>
                         {shelves.map((s) => {
@@ -563,32 +872,49 @@ export default function RentPage() {
                           const h = s.height * CELL - 4;
                           const displayName = getShelfDisplayName(s.name, s.type);
                           const fontSize = s.font_size > 0 ? Math.min(s.font_size, h * 0.5) : Math.min(10, h * 0.4);
+                          // 전체보기에서는 비하이라이트 서재도 또렷하게, 미니맵에서는 흐리게
+                          const dimOpacity = fullView ? 0.9 : 0.25;
+                          const dimFill = fullView ? s.color + "22" : s.color + "12";
+                          const dimStroke = fullView ? 1.5 : 1;
+                          const dimTextOpacity = fullView ? 0.85 : 0.4;
 
                           return (
                             <g key={s.id}>
+                              {/* 하이라이트: 뒤에 깔리는 글로우(펄스) */}
+                              {isHighlighted && (
+                                <rect
+                                  x={x + 2}
+                                  y={y + 2}
+                                  width={w}
+                                  height={h}
+                                  rx={4}
+                                  fill={s.color}
+                                  style={{ transformOrigin: `${x + 2 + w / 2}px ${y + 2 + h / 2}px`, animation: "pulse-glow 1.1s ease-in-out infinite" }}
+                                />
+                              )}
                               <rect
                                 x={x + 2}
                                 y={y + 2}
                                 width={w}
                                 height={h}
                                 rx={4}
-                                fill={isHighlighted ? s.color + "40" : s.color + "15"}
+                                fill={isHighlighted ? s.color : dimFill}
+                                fillOpacity={isHighlighted ? 0.85 : 1}
                                 stroke={s.color}
-                                strokeWidth={isHighlighted ? 3 : 1}
+                                strokeWidth={isHighlighted ? 4 : dimStroke}
                                 strokeDasharray={s.type === "label" ? "4 2" : undefined}
-                                opacity={isHighlighted ? 1 : 0.35}
-                                style={isHighlighted ? { animation: "blink-shelf 0.8s ease-in-out infinite" } : undefined}
+                                opacity={isHighlighted ? 1 : dimOpacity}
+                                style={isHighlighted ? { animation: "pulse-shelf 1.1s ease-in-out infinite" } : undefined}
                               />
                               <text
                                 x={x + 2 + w / 2}
                                 y={y + 2 + h / 2}
                                 textAnchor="middle"
                                 dominantBaseline="central"
-                                fill={s.color}
-                                fontSize={fontSize}
+                                fill={isHighlighted ? "#fff" : s.color}
+                                fontSize={isHighlighted ? fontSize * 1.15 : fontSize}
                                 fontWeight={s.font_bold || isHighlighted ? "bold" : "normal"}
-                                opacity={isHighlighted ? 1 : 0.5}
-                                style={isHighlighted ? { animation: "blink-text 0.8s ease-in-out infinite" } : undefined}
+                                opacity={isHighlighted ? 1 : dimTextOpacity}
                               >
                                 {displayName}
                               </text>
@@ -605,11 +931,11 @@ export default function RentPage() {
                           onClick={() => { setMapOpen(true); setMapScale(1); setMapPos({ x: 0, y: 0 }); }}
                         >
                           <svg
-                            viewBox={`0 0 ${vbW} ${vbH}`}
-                            className="w-full max-h-[200px] rounded"
+                            viewBox={miniViewBox}
+                            className="w-full max-h-[240px] rounded"
                             style={{ background: "hsl(var(--muted))" }}
                           >
-                            {shelfSvgContent}
+                            {renderShelfSvg(false)}
                           </svg>
                           <div className="absolute inset-0 flex items-center justify-center bg-black/0 group-hover:bg-black/10 transition-colors rounded">
                             <Maximize2 className="size-6 text-white opacity-0 group-hover:opacity-80 transition-opacity drop-shadow" />
@@ -684,7 +1010,7 @@ export default function RentPage() {
                                   transformOrigin: "center center",
                                 }}
                               >
-                                {shelfSvgContent}
+                                {renderShelfSvg(true)}
                               </svg>
                             </div>
 
@@ -750,7 +1076,7 @@ export default function RentPage() {
       {checkoutStep !== "idle" && (
         <div className="fixed inset-0 z-[200] bg-primary flex flex-col h-dvh">
           {checkoutStep === "guide" && (
-            <div className="flex flex-1 flex-col px-[clamp(1.5rem,4vw,2.5rem)] py-[clamp(2rem,4vh,3rem)]">
+            <div className="flex flex-1 flex-col px-[clamp(1.5rem,4vw,2.5rem)] pt-[clamp(1rem,2vh,1.5rem)] pb-[clamp(1rem,2vh,1.5rem)] min-h-0">
               {/* 상단 닫기 */}
               <div className="flex justify-end shrink-0">
                 <button
@@ -761,9 +1087,41 @@ export default function RentPage() {
                 </button>
               </div>
 
-              <div className="flex-1 flex flex-col items-center justify-center gap-[clamp(1.5rem,3vh,2.5rem)]">
-                <BookOpen className="size-[clamp(3rem,8vw,5rem)] text-primary-foreground" />
-                <h2 className="text-[clamp(1.5rem,4vw,2.2rem)] font-bold text-primary-foreground text-center">
+              <div className="flex-1 min-h-0 flex flex-col items-center justify-start gap-[clamp(1rem,2vh,1.6rem)] overflow-y-auto py-[clamp(0.5rem,1.5vh,1.2rem)]">
+                {/* 스캔한 도서 정보 - 크게 강조 */}
+                {book && (
+                  <div className="w-full max-w-md flex items-center gap-[clamp(0.8rem,2.5vw,1.4rem)] bg-primary-foreground rounded-2xl p-[clamp(1rem,3vw,1.6rem)] shadow-lg">
+                    {book.cover_image ? (
+                      <img
+                        src={book.cover_image}
+                        alt={book.title}
+                        className="w-[clamp(4.5rem,15vw,7rem)] h-[clamp(6.5rem,21vw,10rem)] object-cover rounded-lg shrink-0"
+                      />
+                    ) : (
+                      <div className="w-[clamp(4.5rem,15vw,7rem)] h-[clamp(6.5rem,21vw,10rem)] bg-muted rounded-lg shrink-0 flex items-center justify-center">
+                        <BookOpen className="size-[clamp(2rem,5vw,3rem)] text-muted-foreground" />
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[clamp(1.3rem,3.5vw,2rem)] font-bold leading-tight text-foreground line-clamp-3">
+                        {book.title}
+                      </p>
+                      <p className="text-[clamp(1rem,2.4vw,1.4rem)] text-muted-foreground mt-1">
+                        {book.author}
+                      </p>
+                      {book.location_detail && (
+                        <div className="flex items-center gap-1 mt-2">
+                          <MapPin className="size-[clamp(1rem,2.2vw,1.3rem)] text-primary shrink-0" />
+                          <span className="text-[clamp(0.95rem,2.2vw,1.25rem)] font-semibold text-primary">
+                            {book.location_detail}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                <h2 className="text-[clamp(1.3rem,3.5vw,2rem)] font-bold text-primary-foreground text-center">
                   대여 주의사항
                 </h2>
 
@@ -792,13 +1150,20 @@ export default function RentPage() {
                   </ul>
                 </div>
 
+                <div className="w-full max-w-md flex items-center justify-center gap-2 bg-primary-foreground/20 rounded-full px-5 py-3">
+                  <Candy className="size-[clamp(1.2rem,2.8vw,1.5rem)] text-yellow-300 shrink-0" />
+                  <span className="text-[clamp(1rem,2.3vw,1.3rem)] font-bold text-yellow-300 text-center">
+                    반납 완료 시 젤리 10개가 지급돼요!
+                  </span>
+                </div>
+
                 <p className="text-[clamp(1rem,2.2vw,1.3rem)] text-primary-foreground/80 text-center">
                   위 주의사항에 동의하고 대여하시겠습니까?
                 </p>
               </div>
 
-              {/* 하단 버튼 */}
-              <div className="shrink-0 flex gap-3 pb-[env(safe-area-inset-bottom)]">
+              {/* 하단 버튼 (항상 고정 노출) */}
+              <div className="shrink-0 flex gap-3 pt-[clamp(0.8rem,1.5vh,1.2rem)] pb-[env(safe-area-inset-bottom)] border-t border-primary-foreground/20 -mx-[clamp(1.5rem,4vw,2.5rem)] px-[clamp(1.5rem,4vw,2.5rem)]">
                 <Button
                   variant="outline"
                   className="flex-1 h-[clamp(3.5rem,7vh,4.5rem)] text-[clamp(1.1rem,2.5vw,1.4rem)] bg-primary-foreground/20 border-primary-foreground/30 text-primary-foreground hover:bg-primary-foreground/30"
@@ -840,8 +1205,8 @@ export default function RentPage() {
                 </p>
                 <div className="flex items-center gap-2 bg-primary-foreground/20 rounded-full px-5 py-2 mt-1">
                   <Candy className="size-[clamp(1.2rem,2.8vw,1.5rem)] text-yellow-300" />
-                  <span className="text-[clamp(1.1rem,2.5vw,1.4rem)] font-bold text-yellow-300">
-                    +5 젤리 획득!
+                  <span className="text-[clamp(1.05rem,2.4vw,1.35rem)] font-bold text-yellow-300">
+                    반납하면 젤리 10개 지급!
                   </span>
                 </div>
               </div>

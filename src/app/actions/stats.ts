@@ -1,6 +1,7 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getCurrentUser } from '@/app/actions/auth'
 import { getKSTDateString } from '@/lib/date'
 
@@ -74,17 +75,17 @@ export async function getDashboardStats(
     .gte('created_at', startDate)
     .lte('created_at', endDate + 'T23:59:59')
 
-  // 다독왕 TOP 10: 기간 내 대출 많은 주민
+  // 다독왕 TOP 10: 기간 내 대출 많은 주민 (게스트 제외)
   const { data: topReadersData } = await supabase
     .from('rentals')
-    .select('user_id, profiles!rentals_user_id_fkey(name, dong_ho)')
+    .select('user_id, profiles!rentals_user_id_fkey(name, dong_ho, is_guest)')
     .gte('rented_at', startDate)
     .lte('rented_at', endDate + 'T23:59:59')
 
   const readerCounts = new Map<string, { name: string; dong_ho: string; count: number }>()
   for (const r of topReadersData ?? []) {
-    const profile = r.profiles as { name: string; dong_ho: string } | null
-    if (!profile) continue
+    const profile = r.profiles as { name: string; dong_ho: string; is_guest?: boolean } | null
+    if (!profile || profile.is_guest) continue
     const existing = readerCounts.get(r.user_id)
     if (existing) {
       existing.count++
@@ -172,12 +173,26 @@ export async function getOverdueList() {
     .select('*')
     .order('overdue_days', { ascending: false })
 
-  return (data ?? []).map((r) => ({
+  const rows = data ?? []
+
+  // 게스트 여부 조회 (배지 표시용)
+  const userIds = [...new Set(rows.map((r) => r.user_id))]
+  let guestMap: Record<string, boolean> = {}
+  if (userIds.length > 0) {
+    const { data: profiles } = await supabaseAdmin
+      .from('profiles')
+      .select('id, is_guest')
+      .in('id', userIds)
+    guestMap = Object.fromEntries((profiles ?? []).map((p) => [p.id, !!p.is_guest]))
+  }
+
+  return rows.map((r) => ({
     id: r.id,
     user_id: r.user_id,
     book_id: r.book_id,
     book: { title: r.book_title, barcode: r.book_barcode },
     user: { name: r.user_name, dong_ho: r.user_dong_ho, phone_number: r.user_phone },
+    is_guest: guestMap[r.user_id] ?? false,
     rented_at: r.rented_at,
     due_date: r.due_date,
     overdue_days: r.overdue_days,

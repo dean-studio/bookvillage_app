@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, keepPreviousData } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -16,12 +16,28 @@ export function BooksClient() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [filter, setFilter] = useState<"all" | "available">("all");
+  const [sort, setSort] = useState<"recent" | "title_asc" | "title_desc">("title_asc");
   const [page, setPage] = useState(1);
+  const restoredRef = useRef(false);
+
+  // 마운트 후 URL ?q= 에서 검색어 복원 (SSR/CSR 초기값 불일치 방지)
+  useEffect(() => {
+    const q = new URLSearchParams(window.location.search).get("q") ?? "";
+    if (q) {
+      setSearch(q);
+      setDebouncedSearch(q);
+    }
+    restoredRef.current = true;
+  }, []);
 
   useEffect(() => {
-    if (debouncedSearch.trim()) {
-      logSearch(debouncedSearch.trim()).catch(() => {});
+    // 검색어를 URL에 반영 (뒤로가기 시 복원) — 복원 완료 후에만
+    if (restoredRef.current) {
+      const params = new URLSearchParams(window.location.search);
+      if (debouncedSearch.trim()) params.set("q", debouncedSearch.trim());
+      else params.delete("q");
+      const qs = params.toString();
+      window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
     }
   }, [debouncedSearch]);
 
@@ -33,26 +49,34 @@ export function BooksClient() {
     return () => clearTimeout(timer);
   }, [search]);
 
+  const hasQuery = debouncedSearch.trim().length > 0;
+
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["books", debouncedSearch, filter, page],
+    queryKey: ["books", debouncedSearch, sort, page],
     queryFn: () =>
       getBooks({
         q: debouncedSearch || undefined,
-        available: filter === "available" ? true : undefined,
+        sort,
         page,
         limit: 20,
       }),
     placeholderData: keepPreviousData,
+    enabled: hasQuery,
   });
 
   const books = (data?.books ?? []) as Book[];
   const totalPages = data?.totalPages ?? 0;
   const totalCount = data?.totalCount ?? 0;
 
-  function handleFilterChange(newFilter: "all" | "available") {
-    setFilter(newFilter);
-    setPage(1);
-  }
+  // 검색 로그는 결과가 도착한 뒤에 기록 (getBooks 서버액션 큐를 막지 않도록)
+  const loggedRef = useRef<string>("");
+  useEffect(() => {
+    const q = debouncedSearch.trim();
+    if (data && q && q.length >= 2 && loggedRef.current !== q) {
+      loggedRef.current = q;
+      logSearch(q).catch(() => {});
+    }
+  }, [data, debouncedSearch]);
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -68,32 +92,49 @@ export function BooksClient() {
             className="h-[clamp(3rem,6vh,4.5rem)] pl-12 text-[clamp(1.1rem,2.5vw,1.6rem)]"
           />
         </div>
-        <div className="flex items-center gap-[clamp(0.4rem,1vw,0.8rem)] mt-[1vh]">
-          <Button
-            variant={filter === "all" ? "default" : "outline"}
-            className="h-[clamp(2.5rem,5vh,3.5rem)] text-[clamp(1rem,2.2vw,1.4rem)] px-[clamp(1rem,2.5vw,1.5rem)]"
-            onClick={() => handleFilterChange("all")}
+        {/* 검색 권수(왼쪽) + 정렬 필터(오른쪽) */}
+        <div className="flex items-center justify-between mt-[1vh]">
+          <span className="text-[clamp(0.9rem,2vw,1.3rem)] text-muted-foreground">
+            {totalCount > 0 ? `총 ${totalCount}권` : " "}
+          </span>
+          <select
+            value={sort}
+            onChange={(e) => { setSort(e.target.value as typeof sort); setPage(1); }}
+            className="h-[clamp(2.5rem,5vh,3.5rem)] rounded-md border bg-background px-3 text-[clamp(0.95rem,2.1vw,1.3rem)]"
           >
-            전체
-          </Button>
-          <Button
-            variant={filter === "available" ? "default" : "outline"}
-            className="h-[clamp(2.5rem,5vh,3.5rem)] text-[clamp(1rem,2.2vw,1.4rem)] px-[clamp(1rem,2.5vw,1.5rem)]"
-            onClick={() => handleFilterChange("available")}
-          >
-            대출 가능
-          </Button>
-          {totalCount > 0 && (
-            <span className="ml-auto text-[clamp(0.9rem,2vw,1.3rem)] text-muted-foreground">
-              {totalCount}권
-            </span>
-          )}
+            <option value="title_asc">가나다순</option>
+            <option value="title_desc">가나다 역순</option>
+            <option value="recent">최신순</option>
+          </select>
         </div>
       </header>
 
       {/* 도서 목록 */}
       <main className="flex-1 overflow-y-auto px-[clamp(1rem,3vw,2rem)] py-[1.5vh] space-y-[clamp(0.5rem,1vh,1rem)]">
-        {isLoading ? (
+        {!hasQuery ? (
+          <div className="flex flex-col items-center justify-center py-[12vh] gap-4 text-muted-foreground px-6">
+            <Search className="size-[clamp(3rem,8vw,4.5rem)] opacity-30" />
+            <p className="text-[clamp(1.2rem,3vw,1.8rem)] font-semibold text-foreground text-center">
+              도서명을 검색해 주세요
+            </p>
+            <p className="text-[clamp(0.95rem,2.2vw,1.3rem)] text-center leading-relaxed">
+              찾으시는 책의 제목이나 저자를 입력하세요.<br />
+              예) <span className="text-primary font-medium">전천당</span>, <span className="text-primary font-medium">설민석 한국사</span>, <span className="text-primary font-medium">강아지똥</span>
+            </p>
+            {/* 예시 칩: 누르면 바로 검색 */}
+            <div className="flex flex-wrap justify-center gap-2 mt-1">
+              {["전천당", "설민석", "그리스로마신화", "why"].map((ex) => (
+                <button
+                  key={ex}
+                  onClick={() => setSearch(ex)}
+                  className="rounded-full border px-4 py-2 text-[clamp(0.9rem,2vw,1.2rem)] active:bg-muted transition-colors"
+                >
+                  {ex}
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : isLoading ? (
           <div className="space-y-[clamp(0.5rem,1vh,1rem)] animate-pulse">
             {[...Array(5)].map((_, i) => (
               <div key={i} className="rounded-lg border p-[clamp(0.8rem,2vw,1.2rem)]">

@@ -197,10 +197,13 @@ export default function AdminDashboardPage() {
         <>
           {/* 통계 카드 */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
+            <Card
+              onClick={() => router.push("/admin/returns")}
+              className="cursor-pointer transition-shadow hover:shadow-md active:scale-[0.99]"
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">
-                  {periodLabel} 대출
+                  {periodLabel} 도서 대여 및 반납 현황
                 </CardTitle>
                 <TrendingUp className="size-4 text-muted-foreground" />
               </CardHeader>
@@ -213,19 +216,25 @@ export default function AdminDashboardPage() {
                 </p>
               </CardContent>
             </Card>
-            <Card>
+            <Card
+              onClick={() => router.push("/admin/rentals")}
+              className="cursor-pointer transition-shadow hover:shadow-md active:scale-[0.99]"
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
-                <CardTitle className="text-sm font-medium">대출 중</CardTitle>
+                <CardTitle className="text-sm font-medium">대여중 도서</CardTitle>
                 <BookOpen className="size-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
                   {stats?.summary.active_rentals ?? 0}
                 </div>
-                <p className="text-xs text-muted-foreground">권 대출 중</p>
+                <p className="text-xs text-muted-foreground">권 대여중</p>
               </CardContent>
             </Card>
-            <Card>
+            <Card
+              onClick={() => router.push("/admin/overdue")}
+              className="cursor-pointer transition-shadow hover:shadow-md active:scale-[0.99]"
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">연체</CardTitle>
                 <Clock className="size-4 text-muted-foreground" />
@@ -237,7 +246,10 @@ export default function AdminDashboardPage() {
                 <p className="text-xs text-muted-foreground">건 연체 중</p>
               </CardContent>
             </Card>
-            <Card>
+            <Card
+              onClick={() => router.push("/admin/residents")}
+              className="cursor-pointer transition-shadow hover:shadow-md active:scale-[0.99]"
+            >
               <CardHeader className="flex flex-row items-center justify-between pb-2">
                 <CardTitle className="text-sm font-medium">신규 가입</CardTitle>
                 <Users className="size-4 text-muted-foreground" />

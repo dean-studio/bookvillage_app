@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { ScanBarcode, BookOpen, User } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getMyNotificationCount } from "@/app/actions/rentals";
+import { getUnreadNoticeCount } from "@/app/actions/notices";
 
 export function BottomNav() {
   const pathname = usePathname();
@@ -13,10 +14,14 @@ export function BottomNav() {
   const isBooksActive = pathname.startsWith("/books");
   const isMypageActive = pathname.startsWith("/mypage");
   const [notifCount, setNotifCount] = useState(0);
+  const [noticeCount, setNoticeCount] = useState(0);
 
   useEffect(() => {
     getMyNotificationCount().then(setNotifCount).catch(() => {});
+    getUnreadNoticeCount().then(setNoticeCount).catch(() => {});
   }, [pathname]);
+
+  const totalBadge = notifCount + noticeCount;
 
   return (
     <nav className="shrink-0 border-t bg-background relative">
@@ -94,9 +99,9 @@ export function BottomNav() {
           >
             <div className="relative">
               <User className="size-[clamp(1.4rem,3.2vw,2.2rem)]" />
-              {notifCount > 0 && (
+              {totalBadge > 0 && (
                 <span className="absolute -top-1.5 -right-2.5 min-w-[1.1rem] h-[1.1rem] flex items-center justify-center rounded-full bg-destructive text-destructive-foreground text-[0.6rem] font-bold px-1">
-                  {notifCount > 9 ? "9+" : notifCount}
+                  {totalBadge > 9 ? "9+" : totalBadge}
                 </span>
               )}
             </div>

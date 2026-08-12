@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
@@ -15,12 +15,14 @@ const navItems: NavItem[] = [
   { type: "divider" },
   { href: "/admin/residents", label: "주민 목록", icon: Users },
   { href: "/admin/rankings", label: "랭킹", icon: Trophy },
+  { href: "/admin/reports", label: "독서록", icon: FileText },
   { type: "divider" },
   { href: "/admin/books", label: "전체 도서", icon: Library, exact: true },
   { href: "/admin/rentals", label: "대여중 도서", icon: BookCheck, exact: true },
+  { href: "/admin/rentals/period", label: "기간별 대여", icon: CalendarRange },
   { href: "/admin/books/new", label: "도서 등록", icon: BookPlus },
-  { href: "/admin/books/barcodes", label: "바코드 생성", icon: Barcode },
   { href: "/admin/checkout", label: "대출", icon: BookCheck },
+  { href: "/admin/guest-checkout", label: "비회원 대출", icon: UserPlus },
   { type: "divider" },
   { href: "/admin/return", label: "반납", icon: BookDown },
   { href: "/admin/returns", label: "반납 내역", icon: ClipboardCheck },
@@ -28,6 +30,9 @@ const navItems: NavItem[] = [
   { href: "/admin/overdue", label: "연체 내역", icon: AlertTriangle },
   { href: "/admin/deletions", label: "도서 삭제내역", icon: Trash2 },
   { type: "divider" },
+  { href: "/admin/notices", label: "공지사항", icon: Megaphone },
+  { href: "/admin/books/barcodes", label: "바코드 생성", icon: Barcode },
+  { href: "/admin/books/logo-print", label: "로고 인쇄", icon: Sticker },
   { href: "/admin/manage", label: "관리", icon: Settings },
 ];
 
