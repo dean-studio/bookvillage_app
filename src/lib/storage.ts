@@ -72,6 +72,29 @@ export async function uploadBookCoverImage(file: File): Promise<string | null> {
   return data.publicUrl
 }
 
+// 구매 영수증 이미지 업로드 (글자 판독 위해 최대 폭 1600px로 축소)
+export async function uploadReceiptImage(file: File): Promise<string | null> {
+  const supabase = createClient()
+  const fileName = `${crypto.randomUUID()}.jpg`
+  const filePath = `receipts/${fileName}`
+
+  let body: Blob = file
+  try {
+    body = await resizeImage(file, 1600, 0.9)
+  } catch {
+    body = file
+  }
+
+  const { error } = await supabase.storage
+    .from('images')
+    .upload(filePath, body, { cacheControl: '3600', upsert: false, contentType: 'image/jpeg' })
+
+  if (error) return null
+
+  const { data } = supabase.storage.from('images').getPublicUrl(filePath)
+  return data.publicUrl
+}
+
 // 공지사항 이미지 업로드 (최대 폭 1000px로 축소)
 export async function uploadNoticeImage(file: File): Promise<string | null> {
   const supabase = createClient()

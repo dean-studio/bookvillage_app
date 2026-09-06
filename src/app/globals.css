@@ -160,6 +160,12 @@
   min-height: unset;
   padding: 0.25rem;
 }
+/* 아이콘 전용 버튼: 전역 padding/min-height 강제 해제 (호버 오버레이 아이콘 등) */
+.admin-content button.icon-btn {
+  min-height: unset;
+  padding: 0;
+  font-size: inherit;
+}
 .admin-content [data-slot="dialog-footer"] button,
 .admin-content [data-slot="dialog-footer"] [role="button"] {
   min-height: 3rem;
@@ -212,6 +218,24 @@
 }
 .admin-content .gap-4 {
   gap: 1.25rem;
+}
+
+/* 월별 신간 인쇄 미리보기: A4 인쇄 영역(200×277mm) */
+.newbook-page {
+  width: 200mm;
+  min-height: 277mm;
+}
+.newbook-fit {
+  width: 200mm;
+  padding: 10mm 8mm;
+  box-sizing: border-box;
+}
+.newbook-eyebrow-line {
+  display: inline-block;
+  width: 2.4rem;
+  height: 1px;
+  background: currentColor;
+  opacity: 0.5;
 }
 
 /* 바코드 라벨 인쇄: 스티커 60×40mm, 사이 간격 15mm (잘라서 스티커에 부착) */
@@ -278,5 +302,56 @@
     max-height: 26mm !important;
     max-width: 43mm !important;
     width: auto !important;
+  }
+
+  /* 월별 신간도서 인쇄: 화면 미리보기와 100% 동일하게(WYSIWYG) 인쇄.
+     @page margin 10mm 5mm → 인쇄 가능 영역 = 200×277mm = 화면 .newbook-page 박스와 일치.
+     화면에서 계산한 scale이 그대로 적용되므로 크기/폰트/간격을 덮어쓰지 않는다. */
+  .newbook-page {
+    min-height: 0 !important; /* zoom 축소 후 빈 공간이 2페이지로 넘어가지 않도록 */
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .newbook-badge {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* 구매 영수증 인쇄: 한 장에 한 영수증 (A4 세로 꽉 채움) */
+  .receipt-print-root {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+  .receipt-page {
+    width: 200mm !important;
+    height: 277mm !important; /* A4 높이 - 상하 여백 */
+    margin: 0 auto !important;
+    display: flex !important;
+    flex-direction: column !important;
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .receipt-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  .receipt-image {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    overflow: hidden !important;
+  }
+  .receipt-image img {
+    max-width: 100% !important;
+    max-height: 100% !important;
+    width: auto !important;
+    height: auto !important;
+    object-fit: contain !important;
   }
 }

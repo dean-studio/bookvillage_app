@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,8 @@ const navItems: NavItem[] = [
   { href: "/admin/notices", label: "공지사항", icon: Megaphone },
   { href: "/admin/books/barcodes", label: "바코드 생성", icon: Barcode },
   { href: "/admin/books/logo-print", label: "로고 인쇄", icon: Sticker },
+  { href: "/admin/new-arrivals", label: "월별 신간", icon: Newspaper },
+  { href: "/admin/receipts", label: "구매 영수증", icon: Receipt },
   { href: "/admin/manage", label: "관리", icon: Settings },
 ];
 

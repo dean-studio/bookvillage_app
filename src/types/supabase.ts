@@ -84,6 +84,81 @@ export type Database = {
         }
         Relationships: []
       }
+      new_arrivals: {
+        Row: {
+          id: string
+          year_month: string
+          category: string
+          title: string
+          author: string
+          cover_image: string | null
+          source_url: string | null
+          sort_order: number
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          year_month: string
+          category?: string
+          title: string
+          author?: string
+          cover_image?: string | null
+          source_url?: string | null
+          sort_order?: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          year_month?: string
+          category?: string
+          title?: string
+          author?: string
+          cover_image?: string | null
+          source_url?: string | null
+          sort_order?: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      purchase_receipts: {
+        Row: {
+          id: string
+          year_month: string
+          image_url: string
+          memo: string
+          sort_order: number
+          created_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          year_month: string
+          image_url: string
+          memo?: string
+          sort_order?: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          year_month?: string
+          image_url?: string
+          memo?: string
+          sort_order?: number
+          created_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       books: {
         Row: {
           id: string

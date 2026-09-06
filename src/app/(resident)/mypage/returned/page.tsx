@@ -18,9 +18,9 @@ import {
   HelpCircle,
   Loader2,
   ChevronLeft,
-  ChevronDown,
-  ChevronUp,
   Candy,
+  X,
+  Sparkles,
 } from "lucide-react";
 import { getMyRentals } from "@/app/actions/rentals";
 import { getQuizzesByBook, submitQuizAnswer } from "@/app/actions/quizzes";
@@ -36,6 +36,14 @@ type PastRental = {
 };
 
 type QuizItem = { id: string; question: string; options: string[]; is_solved: boolean };
+
+// 감상문 작성 가이드: 탭하면 질문이 입력창에 삽입돼 글쓰기를 도와준다
+const REPORT_HINTS = [
+  "가장 기억에 남는 장면은?",
+  "주인공에게 하고 싶은 말은?",
+  "누구에게 추천하고 싶나요?",
+  "새롭게 알게 된 점은?",
+];
 
 function formatShortDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("ko-KR", { month: "short", day: "numeric", timeZone: "Asia/Seoul" });
@@ -59,14 +67,13 @@ export default function MyReturnedPage() {
   const [quizResult, setQuizResult] = useState<{ is_correct: boolean; correct_answer: number } | null>(null);
   const [isQuizLoading, startQuizTransition] = useTransition();
 
-  // Report
-  const [expandedReportId, setExpandedReportId] = useState<string | null>(null);
+  // Report (전용 풀스크린 에디터)
+  const [reportTarget, setReportTarget] = useState<PastRental | null>(null);
   const [reportText, setReportText] = useState("");
   const [reportRating, setReportRating] = useState(0);
   const [reportError, setReportError] = useState<string | null>(null);
   const [reportSuccess, setReportSuccess] = useState<string | null>(null);
   const [isReportLoading, startReportTransition] = useTransition();
-
 
   function openQuiz(bookId: string) {
     setQuizBookId(bookId);
@@ -91,20 +98,30 @@ export default function MyReturnedPage() {
     });
   }
 
-  function toggleReport(rentalId: string) {
-    if (expandedReportId === rentalId) {
-      setExpandedReportId(null);
-    } else {
-      setExpandedReportId(rentalId);
-      setReportText("");
-      setReportRating(0);
-      setReportError(null);
-    }
+  function openReport(rental: PastRental) {
+    setReportTarget(rental);
+    setReportText("");
+    setReportRating(0);
+    setReportError(null);
   }
 
-  function handleReportSubmit(bookId: string) {
+  function closeReport() {
+    setReportTarget(null);
+  }
+
+  function insertHint(hint: string) {
+    setReportText((prev) => {
+      if (prev.includes(hint)) return prev;
+      const sep = prev.trim().length === 0 ? "" : "\n\n";
+      return `${prev}${sep}${hint}\n`;
+    });
+  }
+
+  function handleReportSubmit() {
+    if (!reportTarget) return;
     if (reportRating === 0 || reportText.trim().length < 10) return;
     setReportError(null);
+    const bookId = reportTarget.book.id;
     startReportTransition(async () => {
       const formData = new FormData();
       formData.set("book_id", bookId);
@@ -113,7 +130,7 @@ export default function MyReturnedPage() {
       const result = await createBookReport(formData);
       if (result.success) {
         setReportSuccess(bookId);
-        setExpandedReportId(null);
+        setReportTarget(null);
         setTimeout(() => setReportSuccess(null), 3000);
         refetch();
       } else {
@@ -123,6 +140,7 @@ export default function MyReturnedPage() {
   }
 
   const currentQuiz = quizzes[currentQuizIdx];
+  const reportValid = reportRating > 0 && reportText.trim().length >= 10;
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
@@ -187,55 +205,134 @@ export default function MyReturnedPage() {
                     </div>
                   </div>
                   <div className="flex gap-3 pt-1">
-                    <Button variant="outline" className="h-[clamp(2.8rem,5.5vh,3.5rem)] flex-1 text-[clamp(0.95rem,2vw,1.2rem)] gap-1.5" onClick={() => openQuiz(rental.book.id)} disabled={!rental.has_quiz}>
-                      <HelpCircle className="size-[clamp(1rem,2.2vw,1.3rem)]" />
-                      {rental.has_quiz ? "퀴즈 풀기" : "퀴즈 없음"}
-                    </Button>
-                    <Button variant={expandedReportId === rental.id ? "secondary" : "outline"} className="h-[clamp(2.8rem,5.5vh,3.5rem)] flex-1 text-[clamp(0.95rem,2vw,1.2rem)] gap-1.5" onClick={() => toggleReport(rental.id)} disabled={rental.has_report}>
+                    {rental.has_quiz && (
+                      <Button variant="outline" className="h-[clamp(2.8rem,5.5vh,3.5rem)] flex-1 text-[clamp(0.95rem,2vw,1.2rem)] gap-1.5" onClick={() => openQuiz(rental.book.id)}>
+                        <HelpCircle className="size-[clamp(1rem,2.2vw,1.3rem)]" />
+                        퀴즈 풀기
+                      </Button>
+                    )}
+                    <Button variant="outline" className="h-[clamp(2.8rem,5.5vh,3.5rem)] flex-1 text-[clamp(0.95rem,2vw,1.2rem)] gap-1.5" onClick={() => openReport(rental)} disabled={rental.has_report}>
                       <FileText className="size-[clamp(1rem,2.2vw,1.3rem)]" />
                       {rental.has_report ? "작성 완료" : "독서록 쓰기"}
-                      {!rental.has_report && (expandedReportId === rental.id ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />)}
                     </Button>
                   </div>
-                  {expandedReportId === rental.id && (
-                    <div className="border-t pt-3 space-y-3">
-                      {reportError && (
-                        <div className="rounded-lg bg-destructive/10 px-3 py-2">
-                          <p className="text-[clamp(0.85rem,1.8vw,1rem)] text-destructive">{reportError}</p>
-                        </div>
-                      )}
-                      <div>
-                        <label className="text-[clamp(0.9rem,2vw,1.1rem)] font-medium mb-1.5 block">별점</label>
-                        <div className="flex gap-1.5">
-                          {[1, 2, 3, 4, 5].map((star) => (
-                            <Button key={star} variant={reportRating >= star ? "default" : "outline"} className="h-[clamp(2.5rem,5vh,3.2rem)] w-[clamp(2.5rem,5vh,3.2rem)] text-[clamp(1.2rem,2.8vw,1.6rem)] p-0" onClick={() => setReportRating(star)}>
-                              {reportRating >= star ? "★" : "☆"}
-                            </Button>
-                          ))}
-                        </div>
-                      </div>
-                      <div>
-                        <label className="text-[clamp(0.9rem,2vw,1.1rem)] font-medium mb-1.5 block">감상문</label>
-                        <textarea
-                          placeholder="이 책에 대한 감상을 자유롭게 적어주세요 (10자 이상)"
-                          value={reportText}
-                          onChange={(e) => setReportText(e.target.value)}
-                          className="flex min-h-[120px] w-full rounded-md border border-input bg-background px-3 py-2.5 text-[clamp(0.95rem,2vw,1.2rem)] ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
-                        />
-                        <p className="text-[clamp(0.75rem,1.6vw,0.9rem)] text-muted-foreground mt-1">{reportText.length}자 / 최소 10자</p>
-                      </div>
-                      <Button className="w-full h-[clamp(2.8rem,5.5vh,3.5rem)] text-[clamp(1rem,2.2vw,1.3rem)]" disabled={reportRating === 0 || reportText.trim().length < 10 || isReportLoading} onClick={() => handleReportSubmit(rental.book.id)}>
-                        {isReportLoading && <Loader2 className="size-4 animate-spin mr-2" />}
-                        등록하기
-                      </Button>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
             ))}
           </>
         )}
       </main>
+
+      {/* 독서록 작성 전용 풀스크린 에디터 */}
+      {reportTarget && (
+        <div className="fixed inset-0 z-[150] bg-background flex flex-col">
+          <header className="shrink-0 border-b bg-background px-[3vw] py-[1.5vh] flex items-center gap-3">
+            <button onClick={closeReport} className="p-1" aria-label="닫기">
+              <X className="size-[clamp(1.3rem,3vw,1.6rem)]" />
+            </button>
+            <h1 className="text-[clamp(1.3rem,3vw,1.8rem)] font-bold flex-1">독서록 쓰기</h1>
+            <span className="inline-flex items-center gap-1 rounded-full bg-yellow-100 dark:bg-yellow-900/30 px-3 py-1 text-[clamp(0.8rem,1.7vw,1rem)] font-semibold text-yellow-700 dark:text-yellow-400">
+              <Candy className="size-[clamp(0.9rem,2vw,1.2rem)]" />
+              +10 젤리
+            </span>
+          </header>
+
+          <div className="flex flex-1 flex-col overflow-hidden px-[3vw] py-[1.5vh] gap-[1.2vh]">
+            {/* 도서 정보 */}
+            <div className="shrink-0 flex gap-[clamp(0.6rem,1.5vw,1rem)] items-center">
+              {reportTarget.book.cover_image ? (
+                <img src={reportTarget.book.cover_image} alt={reportTarget.book.title} className="w-[clamp(3rem,7vw,4.5rem)] h-[clamp(4.3rem,10vw,6.3rem)] object-cover rounded shrink-0" />
+              ) : (
+                <div className="w-[clamp(3rem,7vw,4.5rem)] h-[clamp(4.3rem,10vw,6.3rem)] bg-muted rounded shrink-0 flex items-center justify-center">
+                  <BookOpen className="size-[clamp(1.3rem,3vw,1.8rem)] text-muted-foreground" />
+                </div>
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-[clamp(1.1rem,2.4vw,1.4rem)] font-bold leading-tight line-clamp-2">{reportTarget.book.title}</p>
+                <p className="text-[clamp(0.9rem,2vw,1.1rem)] text-muted-foreground truncate">{reportTarget.book.author}</p>
+              </div>
+            </div>
+
+            {/* 별점 */}
+            <div className="shrink-0">
+              <label className="text-[clamp(0.9rem,2vw,1.1rem)] font-medium mb-1.5 block">이 책, 별점을 준다면?</label>
+              <div className="flex gap-2">
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <button
+                    key={star}
+                    type="button"
+                    onClick={() => setReportRating(star)}
+                    className={`h-[clamp(2.8rem,6vh,3.6rem)] flex-1 rounded-xl border text-[clamp(1.4rem,3.2vw,2rem)] leading-none transition-colors ${
+                      reportRating >= star
+                        ? "bg-yellow-400/20 border-yellow-400 text-yellow-500"
+                        : "border-input text-muted-foreground/40"
+                    }`}
+                    aria-label={`${star}점`}
+                  >
+                    {reportRating >= star ? "★" : "☆"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 작성 가이드 힌트 */}
+            <div className="shrink-0">
+              <p className="flex items-center gap-1 text-[clamp(0.8rem,1.7vw,1rem)] text-muted-foreground mb-1.5">
+                <Sparkles className="size-[clamp(0.9rem,1.9vw,1.15rem)] text-yellow-500" />
+                무엇을 쓸지 막막하다면, 눌러서 시작해보세요
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {REPORT_HINTS.map((hint) => (
+                  <button
+                    key={hint}
+                    type="button"
+                    onClick={() => insertHint(hint)}
+                    className="rounded-full border border-primary/30 bg-primary/5 px-3 py-1.5 text-[clamp(0.8rem,1.7vw,1rem)] text-primary hover:bg-primary/10 transition-colors"
+                  >
+                    {hint}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 감상문 (남는 공간 전부 차지) */}
+            <div className="flex flex-1 flex-col min-h-0">
+              <textarea
+                placeholder="이 책을 읽고 느낀 점을 자유롭게 적어주세요. (10자 이상)"
+                value={reportText}
+                onChange={(e) => setReportText(e.target.value)}
+                maxLength={2000}
+                autoFocus
+                className="flex-1 min-h-0 w-full rounded-xl border border-input bg-background px-4 py-3 text-[clamp(1rem,2.1vw,1.25rem)] leading-relaxed ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none"
+              />
+              <div className="flex items-center justify-between mt-1">
+                <span className={`text-[clamp(0.75rem,1.6vw,0.95rem)] ${reportText.trim().length >= 10 ? "text-muted-foreground" : "text-primary"}`}>
+                  {reportText.trim().length < 10 ? `최소 10자 (현재 ${reportText.trim().length}자)` : `${reportText.length}자`}
+                </span>
+                <span className="text-[clamp(0.75rem,1.6vw,0.95rem)] text-muted-foreground">{reportText.length}/2000</span>
+              </div>
+            </div>
+
+            {reportError && (
+              <div className="shrink-0 rounded-lg bg-destructive/10 px-3 py-2">
+                <p className="text-[clamp(0.85rem,1.8vw,1rem)] text-destructive">{reportError}</p>
+              </div>
+            )}
+          </div>
+
+          {/* 하단 고정 등록 버튼 */}
+          <div className="shrink-0 border-t bg-background px-[3vw] py-[1.2vh]">
+            <Button
+              className="w-full h-[clamp(3rem,6vh,3.8rem)] text-[clamp(1.05rem,2.3vw,1.35rem)] gap-2"
+              disabled={!reportValid || isReportLoading}
+              onClick={handleReportSubmit}
+            >
+              {isReportLoading ? <Loader2 className="size-5 animate-spin" /> : <Candy className="size-5" />}
+              등록하고 젤리 받기
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Quiz Modal */}
       <Dialog open={!!quizBookId} onOpenChange={(open) => { if (!open) { setQuizBookId(null); setQuizzes([]); setQuizAnswer(null); setQuizResult(null); } }}>

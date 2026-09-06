@@ -12,7 +12,7 @@ export async function getMyPageData() {
     return {
       userName: '', dongHo: '',
       activeCount: 0, overdueCount: 0,
-      pastCount: 0, unreportedCount: 0,
+      pastCount: 0, unreportedCount: 0, reportCount: 0,
       notifCount: 0, unreadNotif: 0,
       jellyBalance: 0,
     }
@@ -30,6 +30,7 @@ export async function getMyPageData() {
     { data: pastRentals },
     { data: dueSoonRentals },
     { data: jellyData },
+    { count: reportCount },
   ] = await Promise.all([
     // 프로필
     supabase
@@ -64,6 +65,11 @@ export async function getMyPageData() {
       .select('balance')
       .eq('user_id', userId)
       .single(),
+    // 작성한 독서록 수
+    supabase
+      .from('book_reports')
+      .select('id', { count: 'exact', head: true })
+      .eq('user_id', userId),
   ])
 
   // 연체 계산
@@ -103,6 +109,7 @@ export async function getMyPageData() {
     overdueCount,
     pastCount: (pastRentals ?? []).length,
     unreportedCount,
+    reportCount: reportCount ?? 0,
     notifCount: notifications.length,
     unreadNotif: readAt ? 0 : notifications.length,
     jellyBalance: jellyData?.balance ?? 0,

@@ -15,6 +15,7 @@ import {
   FileText,
   ShieldCheck,
   Megaphone,
+  BookHeart,
 } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 import { getMyPageData } from "@/app/actions/mypage";
@@ -51,6 +52,7 @@ export default function MyPage() {
   const overdueCount = data?.overdueCount ?? 0;
   const pastCount = data?.pastCount ?? 0;
   const unreportedCount = data?.unreportedCount ?? 0;
+  const reportCount = data?.reportCount ?? 0;
   const unreadNotif = data?.unreadNotif ?? 0;
   const notifCount = data?.notifCount ?? 0;
   const jellyBalance = data?.jellyBalance ?? 0;
@@ -109,6 +111,13 @@ export default function MyPage() {
       badge: unreportedCount > 0 ? `${unreportedCount}권` : undefined,
       badgeVariant: "default" as const,
       badgeClass: unreportedCount > 0 ? "bg-yellow-500 text-white" : "",
+    },
+    {
+      href: "/mypage/reports",
+      icon: BookHeart,
+      label: "내 독서록",
+      badge: reportCount > 0 ? `${reportCount}편` : undefined,
+      badgeVariant: "secondary" as const,
     },
     {
       href: "/mypage/notifications",
