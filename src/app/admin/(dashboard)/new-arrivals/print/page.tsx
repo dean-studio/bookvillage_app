@@ -124,10 +124,15 @@ function NewArrivalsPrint() {
   const monthNum = parseInt(m, 10);
   const cardW = cardWidthMm(cols);
 
-  // 분류별 그룹 (책이 있는 분류만, NEW_ARRIVAL_CATEGORIES 순서대로)
+  // 분류별 그룹 (책이 있는 분류만, NEW_ARRIVAL_CATEGORIES 순서대로) → 범례용
   const groups = NEW_ARRIVAL_CATEGORIES
     .map((c) => ({ ...c, books: items.filter((it) => it.category === c.value) }))
     .filter((g) => g.books.length > 0);
+
+  // 한 흐름으로 쭉 나열: 분류 순서대로 이어붙이고, 색상만 분류별로 다르게 한다
+  const flatBooks = groups.flatMap((g) =>
+    g.books.map((book) => ({ book, color: g.color, label: g.label }))
+  );
 
   return (
     <div className="space-y-4">
@@ -226,58 +231,68 @@ function NewArrivalsPrint() {
             <div className="newbook-rule mt-5 h-px w-full bg-gradient-to-r from-transparent via-neutral-200 to-transparent" />
           </header>
 
-          {/* 분류별 섹션 (헤더 제외, 이 블록만 스케일) */}
-          <div ref={sectionsRef} className="space-y-8">
-            {groups.map((g) => (
-              <section key={g.value} className="newbook-section break-inside-avoid">
-                {/* 분류 헤더 (왼쪽 정렬) */}
-                <div className="newbook-cat-head flex items-center gap-3 mb-4">
-                  <span className="newbook-cat-label inline-flex items-baseline gap-1.5 text-primary font-extrabold text-lg whitespace-nowrap">
-                    {g.label}
-                    <span className="text-neutral-400 font-medium text-xs">{g.hint}</span>
-                    <span className="text-neutral-400 font-medium text-sm">{g.books.length}권</span>
-                  </span>
-                  <span className="flex-1 h-px bg-gradient-to-r from-neutral-200 to-transparent" />
-                </div>
-
-                {/* 표지 그리드 (왼쪽 정렬, 카드 폭 고정) */}
-                <div
-                  className="newbook-grid flex flex-wrap justify-start"
-                  style={{ columnGap: `${GAP_X}mm`, rowGap: "8mm" }}
+          {/* 범례 + 한 줄 흐름 그리드 (헤더 제외, 이 블록만 스케일) */}
+          <div ref={sectionsRef}>
+            {/* 분류 색상 범례 */}
+            <div className="newbook-legend flex flex-wrap items-center justify-center gap-x-5 gap-y-2 mb-6">
+              {groups.map((g) => (
+                <span
+                  key={g.value}
+                  className="inline-flex items-baseline gap-1.5 text-sm font-bold text-neutral-700 whitespace-nowrap"
                 >
-                  {g.books.map((it, idx) => (
-                    <div
-                      key={it.id}
-                      className="newbook-card group flex flex-col items-center text-center"
-                      style={{ width: `${cardW}mm` }}
+                  <span
+                    className="newbook-badge inline-block size-3 self-center rounded-full"
+                    style={{ backgroundColor: g.color }}
+                  />
+                  {g.label}
+                  <span className="text-neutral-400 font-medium text-xs">{g.hint}</span>
+                  <span className="text-neutral-400 font-medium text-xs">{g.books.length}권</span>
+                </span>
+              ))}
+            </div>
+
+            {/* 표지 그리드 (분류 구분 없이 순서대로, 색상으로만 구분) */}
+            <div
+              className="newbook-grid flex flex-wrap justify-start"
+              style={{ columnGap: `${GAP_X}mm`, rowGap: "8mm" }}
+            >
+              {flatBooks.map(({ book: it, color }, idx) => (
+                <div
+                  key={it.id}
+                  className="newbook-card group flex flex-col items-center text-center break-inside-avoid"
+                  style={{ width: `${cardW}mm` }}
+                >
+                  <div className="newbook-cover relative aspect-[3/4] w-full">
+                    {/* 번호 배지 (분류 색상) */}
+                    <span
+                      className="newbook-badge absolute -top-2 -left-2 z-10 flex size-7 items-center justify-center rounded-full text-white text-xs font-bold shadow-md ring-2 ring-white"
+                      style={{ backgroundColor: color }}
                     >
-                      <div className="newbook-cover relative aspect-[3/4] w-full">
-                        {/* 번호 배지 */}
-                        <span className="newbook-badge absolute -top-2 -left-2 z-10 flex size-7 items-center justify-center rounded-full bg-primary text-white text-xs font-bold shadow-md ring-2 ring-white">
-                          {idx + 1}
-                        </span>
-                        <div className="newbook-cover-inner absolute inset-0 overflow-hidden rounded-lg bg-neutral-100 flex items-center justify-center shadow-[0_6px_16px_-6px_rgba(0,0,0,0.25)]">
-                          {it.cover_image ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={it.cover_image} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <ImageIcon className="size-8 text-neutral-300" />
-                          )}
-                        </div>
-                      </div>
-                      <p className="newbook-name mt-3 px-1 text-sm font-semibold text-neutral-800 leading-snug break-keep line-clamp-2">
-                        {it.title}
-                      </p>
-                      {it.author && (
-                        <p className="newbook-author mt-0.5 text-xs text-neutral-400 line-clamp-1">
-                          {it.author}
-                        </p>
+                      {idx + 1}
+                    </span>
+                    <div
+                      className="newbook-cover-inner newbook-badge absolute inset-0 overflow-hidden rounded-lg bg-neutral-100 flex items-center justify-center shadow-[0_6px_16px_-6px_rgba(0,0,0,0.25)]"
+                      style={{ border: `2px solid ${color}` }}
+                    >
+                      {it.cover_image ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={it.cover_image} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <ImageIcon className="size-8 text-neutral-300" />
                       )}
                     </div>
-                  ))}
+                  </div>
+                  <p className="newbook-name mt-3 px-1 text-sm font-semibold text-neutral-800 leading-snug break-keep line-clamp-2">
+                    {it.title}
+                  </p>
+                  {it.author && (
+                    <p className="newbook-author mt-0.5 text-xs text-neutral-400 line-clamp-1">
+                      {it.author}
+                    </p>
+                  )}
                 </div>
-              </section>
-            ))}
+              ))}
+            </div>
           </div>
           </div>
         </div>

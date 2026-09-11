@@ -31,7 +31,7 @@ import {
   deleteReceipt,
   type PurchaseReceipt,
 } from "@/app/actions/receipts";
-import { uploadReceiptImage } from "@/lib/storage";
+import { uploadReceiptImage, uploadReceiptPdf } from "@/lib/storage";
 
 function currentYearMonth(): string {
   const d = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -104,18 +104,37 @@ export default function AdminReceiptsPage() {
     setUploadError("");
     setIsUploading(true);
     try {
-      // 여러 장 연속 업로드 지원
+      // 여러 장(이미지)·여러 페이지(PDF) 연속 업로드 지원
       for (const file of Array.from(files)) {
-        const url = await uploadReceiptImage(file);
-        if (!url) {
-          setUploadError("일부 이미지 업로드에 실패했습니다.");
-          continue;
+        const isPdf =
+          file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+        let urls: string[] = [];
+        if (isPdf) {
+          try {
+            urls = await uploadReceiptPdf(file);
+          } catch {
+            urls = [];
+          }
+          if (urls.length === 0) {
+            setUploadError("일부 PDF 처리에 실패했습니다.");
+            continue;
+          }
+        } else {
+          const url = await uploadReceiptImage(file);
+          if (!url) {
+            setUploadError("일부 파일 업로드에 실패했습니다.");
+            continue;
+          }
+          urls = [url];
         }
-        const fd = new FormData();
-        fd.set("year_month", month);
-        fd.set("image_url", url);
-        fd.set("memo", "");
-        await createReceipt(fd);
+        // PDF는 페이지별로 한 장씩 저장
+        for (const url of urls) {
+          const fd = new FormData();
+          fd.set("year_month", month);
+          fd.set("image_url", url);
+          fd.set("memo", "");
+          await createReceipt(fd);
+        }
       }
       loadItems(month);
       loadMonths();
@@ -152,7 +171,7 @@ export default function AdminReceiptsPage() {
       <input
         ref={fileRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf,.pdf"
         multiple
         className="hidden"
         onChange={handleUpload}
@@ -242,7 +261,10 @@ export default function AdminReceiptsPage() {
             >
               <Camera className="size-8 text-muted-foreground" />
               <span className="text-sm text-muted-foreground">
-                이 달의 영수증을 업로드하세요 (여러 장 선택 가능)
+                이 달의 영수증을 업로드하세요 (이미지·PDF, 여러 장 선택 가능)
+              </span>
+              <span className="text-xs text-muted-foreground/70">
+                PDF는 페이지별로 한 장씩 저장됩니다
               </span>
             </button>
           ) : (
