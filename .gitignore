@@ -68,3 +68,11 @@ docs_config/
 
 # backups
 backups/
+
+# classification scripts: 중간 산출물·파이썬 캐시
+scripts/classification/data/
+__pycache__/
+
+# blog 원본 사진 (아이 이름 등 개인정보 포함 → 공개 저장소에 올리지 않음)
+docs/blog/*.jpeg
+docs/blog/images/*.png
