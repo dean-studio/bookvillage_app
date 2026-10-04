@@ -297,6 +297,39 @@
     max-height: 16mm !important;
     max-width: 100% !important;
   }
+  /* 회원카드 인쇄: 85×50mm, A4 한 장에 2열×5행 = 10장 */
+  .member-card-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 3mm !important;
+    align-content: flex-start !important;
+  }
+  .member-card {
+    flex: 0 0 85mm !important;
+    width: 85mm !important;
+    height: 50mm !important;
+    padding: 3mm !important;
+    gap: 2mm !important;
+    border: 0.3mm solid #999 !important;
+    border-radius: 2mm !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    overflow: hidden;
+  }
+  .member-card-qr {
+    width: 38mm !important;
+    height: 38mm !important;
+  }
+  .member-card-logo {
+    height: 6mm !important;
+  }
+  .member-card-name {
+    font-size: 20pt !important;
+  }
+  .member-card-group {
+    font-size: 11pt !important;
+  }
+
   /* 로고 인쇄: 스티커 가득 채우기 */
   .logo-print .barcode-label img {
     max-height: 26mm !important;

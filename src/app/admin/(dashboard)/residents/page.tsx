@@ -18,8 +18,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Users, Loader2, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Users, Loader2, Search, UserPlus, QrCode } from "lucide-react";
 import { getAllResidents } from "@/app/actions/rentals";
+import { isMemberCardCode } from "@/lib/member-card";
 
 type Resident = Awaited<ReturnType<typeof getAllResidents>>[number];
 
@@ -31,6 +33,12 @@ function maskPhone(phone: string): string {
     return phone.slice(0, 3) + "****" + phone.slice(-4);
   }
   return "***";
+}
+
+// 카드 회원은 phone_number가 카드 코드 → 보호자 연락처(선택)를 표시
+function contactOf(r: Resident): string {
+  if (isMemberCardCode(r.phone_number)) return r.contact_phone ? maskPhone(r.contact_phone) : "-";
+  return maskPhone(r.phone_number);
 }
 
 export default function AdminResidentsPage() {
@@ -51,7 +59,8 @@ export default function AdminResidentsPage() {
         (r) =>
           r.name.includes(search) ||
           r.dong_ho.includes(search) ||
-          r.phone_number.includes(search)
+          r.phone_number.includes(search) ||
+          (r.contact_phone ?? "").includes(search)
       )
     : residents;
 
@@ -61,8 +70,18 @@ export default function AdminResidentsPage() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Users className="size-5" />
-            주민 목록
+            회원 목록
             <Badge variant="secondary" className="ml-1">{residents.length}명</Badge>
+            <div className="ml-auto flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => router.push("/admin/residents/cards")}>
+                <QrCode className="size-4 mr-1" />
+                카드 인쇄
+              </Button>
+              <Button size="sm" onClick={() => router.push("/admin/residents/new")}>
+                <UserPlus className="size-4 mr-1" />
+                회원 추가
+              </Button>
+            </div>
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -70,7 +89,7 @@ export default function AdminResidentsPage() {
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <Input
-              placeholder="이름, 동호수, 연락처 검색"
+              placeholder="이름, 소속, 연락처 검색"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-10"
@@ -83,7 +102,7 @@ export default function AdminResidentsPage() {
             </div>
           ) : filtered.length === 0 ? (
             <p className="text-center text-muted-foreground py-8">
-              {search ? "검색 결과가 없습니다." : "등록된 주민이 없습니다."}
+              {search ? "검색 결과가 없습니다." : "등록된 회원이 없습니다."}
             </p>
           ) : (
             <>
@@ -93,7 +112,7 @@ export default function AdminResidentsPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>이름</TableHead>
-                      <TableHead>동/호수</TableHead>
+                      <TableHead>소속</TableHead>
                       <TableHead>연락처</TableHead>
                       <TableHead className="text-right">가입일</TableHead>
                     </TableRow>
@@ -105,10 +124,15 @@ export default function AdminResidentsPage() {
                         className="cursor-pointer"
                         onClick={() => router.push(`/admin/residents/${r.id}`)}
                       >
-                        <TableCell className="font-medium">{r.name}</TableCell>
+                        <TableCell className="font-medium">
+                          {r.name}
+                          {isMemberCardCode(r.phone_number) && (
+                            <Badge variant="outline" className="ml-2 align-middle">QR</Badge>
+                          )}
+                        </TableCell>
                         <TableCell>{r.dong_ho}</TableCell>
                         <TableCell className="font-mono text-muted-foreground">
-                          {maskPhone(r.phone_number)}
+                          {contactOf(r)}
                         </TableCell>
                         <TableCell className="text-right text-muted-foreground">
                           {new Date(r.created_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}
@@ -128,9 +152,14 @@ export default function AdminResidentsPage() {
                     onClick={() => router.push(`/admin/residents/${r.id}`)}
                   >
                     <div>
-                      <p className="font-medium">{r.name}</p>
+                      <p className="font-medium">
+                        {r.name}
+                        {isMemberCardCode(r.phone_number) && (
+                          <Badge variant="outline" className="ml-2 align-middle">QR</Badge>
+                        )}
+                      </p>
                       <p className="text-sm text-muted-foreground">
-                        {r.dong_ho} · {maskPhone(r.phone_number)}
+                        {r.dong_ho} · {contactOf(r)}
                       </p>
                     </div>
                     <span className="text-xs text-muted-foreground shrink-0">

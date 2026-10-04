@@ -1,10 +1,12 @@
 import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
+  // 지점별 홈 화면 앱 이름 (Vercel 환경변수, 미지정 시 1호점)
+  const appName = process.env.NEXT_PUBLIC_APP_NAME || "자람도서관";
   return {
-    name: "자람도서관",
-    short_name: "자람도서관",
-    description: "중앙힐스테이트 자람도서관 - 도서 대여/검색",
+    name: appName,
+    short_name: appName,
+    description: `${appName} - 도서 대여/검색`,
     start_url: "/",
     display: "standalone",
     background_color: "#ffffff",

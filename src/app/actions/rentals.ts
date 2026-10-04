@@ -1038,7 +1038,7 @@ export async function getAllResidents() {
 
   const { data } = await supabaseAdmin
     .from('profiles')
-    .select('id, name, dong_ho, phone_number, role, created_at')
+    .select('id, name, dong_ho, phone_number, contact_phone, role, created_at')
     .eq('role', 'resident')
     .order('created_at', { ascending: false })
 
@@ -1072,7 +1072,7 @@ export async function getResidentDetail(userId: string) {
   const [profileRes, activeRes, pastRes] = await Promise.all([
     supabaseAdmin
       .from('profiles')
-      .select('id, name, dong_ho, phone_number, created_at')
+      .select('id, name, dong_ho, phone_number, contact_phone, memo, created_at')
       .eq('id', userId)
       .single(),
     supabaseAdmin

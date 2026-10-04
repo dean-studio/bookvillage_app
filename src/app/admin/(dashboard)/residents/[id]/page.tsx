@@ -31,10 +31,18 @@ import {
   Plus,
   Minus,
   KeyRound,
+  QrCode,
+  Printer,
+  RefreshCw,
+  Pencil,
+  StickyNote,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { getResidentDetail } from "@/app/actions/rentals";
 import { adminResetResidentPin } from "@/app/actions/auth";
+import { reissueMemberCard, updateCardMemberInfo } from "@/app/actions/member-cards";
+import { isMemberCardCode } from "@/lib/member-card";
+import { QrCodeSvg } from "@/components/qr-code";
 import { getUserJellyHistory, adminGiveJelly, adminDeductJelly } from "@/app/actions/jelly";
 
 type ResidentData = NonNullable<Awaited<ReturnType<typeof getResidentDetail>>>;
@@ -80,6 +88,54 @@ export default function AdminResidentDetailPage() {
     });
   }
 
+  // QR 회원카드 재발급 state
+  const [reissueConfirm, setReissueConfirm] = useState(false);
+  const [cardMsg, setCardMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [isCardAction, startCardAction] = useTransition();
+
+  // 카드 회원 정보 수정 state
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ name: "", group: "", contact_phone: "", memo: "" });
+  const [editMsg, setEditMsg] = useState<string | null>(null);
+  const [isSaving, startSaving] = useTransition();
+
+  function startEdit() {
+    if (!data) return;
+    const p = data.profile;
+    setForm({ name: p.name, group: p.dong_ho, contact_phone: p.contact_phone ?? "", memo: p.memo ?? "" });
+    setEditMsg(null);
+    setEditing(true);
+  }
+
+  function handleSaveInfo() {
+    setEditMsg(null);
+    startSaving(async () => {
+      const result = await updateCardMemberInfo(userId, form);
+      if (!result.success) {
+        setEditMsg(result.error || "저장 실패");
+        return;
+      }
+      const fresh = await getResidentDetail(userId);
+      if (fresh) setData(fresh);
+      setEditing(false);
+    });
+  }
+
+  function handleReissue() {
+    setCardMsg(null);
+    startCardAction(async () => {
+      const result = await reissueMemberCard(userId);
+      setReissueConfirm(false);
+      if (result.success && result.data) {
+        const code = result.data.code;
+        setData((prev) => (prev ? { ...prev, profile: { ...prev.profile, phone_number: code } } : prev));
+        setCardMsg({ type: "success", text: "새 카드가 발급되었습니다. 기존 카드는 더 이상 사용할 수 없습니다." });
+      } else {
+        setCardMsg({ type: "error", text: result.error || "재발급 실패" });
+      }
+    });
+  }
+
   useEffect(() => {
     startTransition(async () => {
       const result = await getResidentDetail(userId);
@@ -101,12 +157,13 @@ export default function AdminResidentDetailPage() {
         <Button variant="ghost" onClick={() => router.back()}>
           <ChevronLeft className="size-4 mr-1" /> 뒤로
         </Button>
-        <p className="text-center text-muted-foreground py-8">주민 정보를 찾을 수 없습니다.</p>
+        <p className="text-center text-muted-foreground py-8">회원 정보를 찾을 수 없습니다.</p>
       </div>
     );
   }
 
   const { profile, active_rentals, past_rentals } = data;
+  const isCardMember = isMemberCardCode(profile.phone_number);
 
   function loadJelly() {
     startJellyTransition(async () => {
@@ -174,81 +231,193 @@ export default function AdminResidentDetailPage() {
         <ChevronLeft className="size-4 mr-1" /> 뒤로
       </Button>
 
-      {/* 주민 정보 */}
+      {/* 회원 정보 */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-lg">
             <User className="size-5" />
-            주민 정보
+            회원 정보
+            {isCardMember && !editing && (
+              <Button size="sm" variant="outline" className="ml-auto" onClick={startEdit}>
+                <Pencil className="size-4 mr-1" />
+                수정
+              </Button>
+            )}
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="flex items-center gap-2">
-              <User className="size-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm text-muted-foreground">이름</p>
-                <p className="font-semibold">{profile.name}</p>
+          {editing ? (
+            <div className="space-y-4 max-w-xl">
+              {([
+                ["name", "이름", 20],
+                ["group", "반(소속)", 20],
+                ["contact_phone", "보호자 휴대폰 (선택)", 20],
+              ] as const).map(([key, label, max]) => (
+                <div key={key} className="space-y-1.5">
+                  <label className="text-sm font-medium">{label}</label>
+                  <Input
+                    className="h-12 text-lg"
+                    value={form[key]}
+                    maxLength={max}
+                    inputMode={key === "contact_phone" ? "tel" : undefined}
+                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
+                  />
+                </div>
+              ))}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">메모 (선택)</label>
+                <textarea
+                  className="w-full min-h-24 rounded-md border bg-transparent px-3 py-2 text-lg focus:outline-none focus:ring-2 focus:ring-ring"
+                  value={form.memo}
+                  maxLength={500}
+                  onChange={(e) => setForm((f) => ({ ...f, memo: e.target.value }))}
+                />
+              </div>
+              {editMsg && <p className="text-sm text-destructive">{editMsg}</p>}
+              <div className="flex gap-2">
+                <Button onClick={handleSaveInfo} disabled={isSaving}>
+                  {isSaving && <Loader2 className="size-4 mr-1 animate-spin" />}
+                  저장
+                </Button>
+                <Button variant="outline" onClick={() => setEditing(false)} disabled={isSaving}>
+                  취소
+                </Button>
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Home className="size-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm text-muted-foreground">동/호수</p>
-                <p className="font-semibold">{profile.dong_ho}</p>
+          ) : (
+            <div className="grid grid-cols-2 gap-4">
+              <div className="flex items-center gap-2">
+                <User className="size-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">이름</p>
+                  <p className="font-semibold">{profile.name}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Phone className="size-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm text-muted-foreground">연락처</p>
-                <p className="font-mono">{profile.phone_number}</p>
+              <div className="flex items-center gap-2">
+                <Home className="size-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">{isCardMember ? "반(소속)" : "동/호수"}</p>
+                  <p className="font-semibold">{profile.dong_ho}</p>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <Calendar className="size-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm text-muted-foreground">가입일</p>
-                <p>{new Date(profile.created_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p>
+              <div className="flex items-center gap-2">
+                <Phone className="size-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">{isCardMember ? "카드 코드" : "연락처"}</p>
+                  <p className="font-mono">{profile.phone_number}</p>
+                </div>
               </div>
+              <div className="flex items-center gap-2">
+                <Calendar className="size-4 text-muted-foreground" />
+                <div>
+                  <p className="text-sm text-muted-foreground">가입일</p>
+                  <p>{new Date(profile.created_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })}</p>
+                </div>
+              </div>
+              {isCardMember && (
+                <>
+                  <div className="flex items-center gap-2">
+                    <Phone className="size-4 text-muted-foreground" />
+                    <div>
+                      <p className="text-sm text-muted-foreground">보호자 휴대폰</p>
+                      <p className="font-mono">{profile.contact_phone || "-"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-2 col-span-2">
+                    <StickyNote className="size-4 text-muted-foreground mt-1" />
+                    <div className="min-w-0">
+                      <p className="text-sm text-muted-foreground">메모</p>
+                      <p className="whitespace-pre-wrap break-words">{profile.memo || "-"}</p>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* 비밀번호(PIN) 재설정 */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <KeyRound className="size-4" />
-            비밀번호(PIN) 재설정
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-muted-foreground">
-            비밀번호는 암호화되어 저장되므로 조회할 수 없습니다. 주민이 비밀번호를 잊은 경우 새 PIN 4자리로 재설정해 주세요.
-          </p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Input
-              inputMode="numeric"
-              maxLength={4}
-              placeholder="새 PIN 4자리"
-              value={newPin}
-              onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
-              className="w-40 font-mono tracking-widest text-lg"
-            />
-            <Button onClick={handleResetPin} disabled={isPinAction || newPin.length !== 4}>
-              {isPinAction ? <Loader2 className="size-4 mr-1 animate-spin" /> : <KeyRound className="size-4 mr-1" />}
-              재설정
-            </Button>
-          </div>
-          {pinMsg && (
-            <p className={`text-sm ${pinMsg.type === "success" ? "text-green-600" : "text-destructive"}`}>
-              {pinMsg.text}
-            </p>
           )}
         </CardContent>
       </Card>
+
+      {/* QR 회원카드 */}
+      {isCardMember && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <QrCode className="size-4" />
+              QR 회원카드
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex flex-wrap items-center gap-4">
+              <QrCodeSvg value={profile.phone_number} className="size-32 rounded border bg-white p-1" />
+              <div className="space-y-2">
+                <Button onClick={() => router.push(`/admin/residents/cards?ids=${profile.id}`)}>
+                  <Printer className="size-4 mr-1" />
+                  카드 인쇄
+                </Button>
+                <p className="text-sm text-muted-foreground">같은 카드를 다시 인쇄합니다. 기존 카드도 계속 사용할 수 있어요.</p>
+              </div>
+            </div>
+            <div className="border-t pt-3 space-y-2">
+              {!reissueConfirm ? (
+                <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setReissueConfirm(true)}>
+                  <RefreshCw className="size-4 mr-1" />
+                  카드 재발급 (분실 시)
+                </Button>
+              ) : (
+                <div className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3">
+                  <span className="text-sm">새 코드로 재발급하면 <b>기존 카드는 사용할 수 없습니다.</b> 진행할까요?</span>
+                  <Button size="sm" variant="destructive" onClick={handleReissue} disabled={isCardAction}>
+                    {isCardAction && <Loader2 className="size-4 mr-1 animate-spin" />}
+                    재발급
+                  </Button>
+                  <Button size="sm" variant="outline" onClick={() => setReissueConfirm(false)} disabled={isCardAction}>
+                    취소
+                  </Button>
+                </div>
+              )}
+              {cardMsg && (
+                <p className={`text-sm ${cardMsg.type === "success" ? "text-green-600" : "text-destructive"}`}>{cardMsg.text}</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 비밀번호(PIN) 재설정 */}
+      {!isCardMember && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <KeyRound className="size-4" />
+              비밀번호(PIN) 재설정
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              비밀번호는 암호화되어 저장되므로 조회할 수 없습니다. 주민이 비밀번호를 잊은 경우 새 PIN 4자리로 재설정해 주세요.
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Input
+                inputMode="numeric"
+                maxLength={4}
+                placeholder="새 PIN 4자리"
+                value={newPin}
+                onChange={(e) => setNewPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+                className="w-40 font-mono tracking-widest text-lg"
+              />
+              <Button onClick={handleResetPin} disabled={isPinAction || newPin.length !== 4}>
+                {isPinAction ? <Loader2 className="size-4 mr-1 animate-spin" /> : <KeyRound className="size-4 mr-1" />}
+                재설정
+              </Button>
+            </div>
+            {pinMsg && (
+              <p className={`text-sm ${pinMsg.type === "success" ? "text-green-600" : "text-destructive"}`}>
+                {pinMsg.text}
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* 현재 대출 중 */}
       <Card>

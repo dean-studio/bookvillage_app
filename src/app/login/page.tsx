@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { signInByDongHo, signUp, checkPhoneExists } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
 import { PrivacyTermsModal } from "@/components/privacy-terms-modal";
+import { CardLogin } from "./card-login";
 import { Loader2, ChevronLeft, Check, ShieldCheck, BellRing, Gift, Lock } from "lucide-react";
 
 const PIN_LENGTH = 4;
@@ -39,6 +40,9 @@ export default function LoginPage() {
   const [apartmentName, setApartmentName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [kakaoChannelId, setKakaoChannelId] = useState("");
+  // 유치원 유형은 마을(텍스트 1칸) 입력 흐름을 쓰고 라벨만 '반'
+  const [villageLabel, setVillageLabel] = useState("지번");
+  const [loginMethod, setLoginMethod] = useState("pin");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [logoReady, setLogoReady] = useState(false);
 
@@ -55,12 +59,21 @@ export default function LoginPage() {
     getPublicSettings().then((settings) => {
       if (settings.apartment_name) setApartmentName(settings.apartment_name);
       if (settings.logo_url) setLogoUrl(settings.logo_url);
-      if (settings.site_type) setSiteType(settings.site_type as SiteType);
+      if (settings.site_type === "kindergarten") {
+        setSiteType("village");
+        setVillageLabel("반");
+      } else if (settings.site_type) {
+        setSiteType(settings.site_type as SiteType);
+      }
+      if (settings.login_method) setLoginMethod(settings.login_method);
+      if (settings.signup_mode === "admin_only") resetToLogin();
+      // 홈 화면 리더기 모드에서는 대여하기 화면에서 카드로 로그인
+      if (settings.kiosk_mode === "on") router.replace("/rent");
       if (settings.kakao_channel_id) setKakaoChannelId(settings.kakao_channel_id);
       setSettingsLoaded(true);
       if (!settings.logo_url) setLogoReady(true);
     });
-  }, []);
+  }, [router]);
 
   // ?signup=1 로 진입하면 회원가입 모드로 시작
   useEffect(() => {
@@ -307,7 +320,7 @@ export default function LoginPage() {
     switch (siteType) {
       case "apartment": return "동";
       case "school": return "학년";
-      case "village": return "지번";
+      case "village": return villageLabel;
     }
   }
 
@@ -327,7 +340,7 @@ export default function LoginPage() {
         switch (siteType) {
           case "apartment": return "동을 입력하세요";
           case "school": return "학년을 입력하세요";
-          case "village": return "지번을 입력하세요";
+          case "village": return `${villageLabel}을 입력하세요`;
         }
         break;
       case "l-ho":
@@ -382,6 +395,10 @@ export default function LoginPage() {
   const isConfirmStep = step === "s-confirm";
 
   const numpadBtnClass = "h-[8.5vh] min-h-16 transition-transform duration-75 active:scale-90 active:brightness-90";
+
+  if (settingsLoaded && loginMethod === "qr") {
+    return <CardLogin logoUrl={logoUrl} apartmentName={apartmentName} />;
+  }
 
   return (
     <div className={`flex h-dvh flex-col transition-colors duration-300 ${isPinConfirmStep ? "bg-sky-50 dark:bg-sky-950/40" : ""}`}>
@@ -542,7 +559,7 @@ export default function LoginPage() {
                 {[
                   { label: "이름", value: name },
                   { label: "휴대폰", value: formatPhone(phone) },
-                  { label: siteType === "village" ? "지번" : (siteType === "school" ? "학년/반" : "동/호"), value: formatDongHo() },
+                  { label: siteType === "village" ? villageLabel : (siteType === "school" ? "학년/반" : "동/호"), value: formatDongHo() },
                   { label: "비밀번호", value: "●".repeat(PIN_LENGTH) },
                 ].map((item) => (
                   <div key={item.label} className="flex justify-between items-center">

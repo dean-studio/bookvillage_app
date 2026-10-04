@@ -25,6 +25,7 @@ export async function generateMetadata(): Promise<Metadata> {
   const description = settings.og_description || "스마트 작은도서관 관리 및 독서 커뮤니티";
   const ogImage = settings.og_image_url || settings.logo_url;
   const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+  const appName = process.env.NEXT_PUBLIC_APP_NAME || "자람도서관";
 
   return {
     ...(appUrl ? { metadataBase: new URL(appUrl) } : {}),
@@ -34,10 +35,10 @@ export async function generateMetadata(): Promise<Metadata> {
     },
     description,
     // 홈 화면 추가 시 앱 이름/아이콘
-    applicationName: "자람도서관",
+    applicationName: appName,
     appleWebApp: {
       capable: true,
-      title: "자람도서관",
+      title: appName,
       statusBarStyle: "default",
     },
     icons: {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useTransition, useEffect } from "react";
+import { useState, useRef, useTransition, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -31,6 +31,7 @@ import { getPopularSearches } from "@/app/actions/recommendations";
 import { getPublicSettings } from "@/app/actions/settings";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
+import { KioskPanel } from "./kiosk-panel";
 
 type PopularSearch = { query: string; count: number };
 
@@ -150,6 +151,25 @@ export default function RentPage() {
 
   useEffect(() => {
     getShelves().then((data) => setShelves(data as unknown as Shelf[]));
+  }, []);
+
+  // 홈 화면 리더기 대출 모드 (관리 → 로그인·대출 방식)
+  const kioskMode = publicSettings?.kiosk_mode === "on";
+  const kioskLogoutSec = Math.min(Math.max(parseInt(publicSettings?.kiosk_logout_sec || "30", 10) || 30, 10), 300);
+
+  // 키오스크 자동 로그아웃 시 열려 있던 화면 정리
+  const handleKioskSignedOut = useCallback(() => {
+    scanClosedRef.current = true;
+    const scanner = scannerRef.current as { stop: () => Promise<void> } | null;
+    if (scanner) scanner.stop().then(() => { scannerRef.current = null; }).catch(() => {});
+    setScanning(false);
+    setBook(null);
+    setBarcode("");
+    setError("");
+    setMapOpen(false);
+    setSearchOpen(false);
+    setDupConfirm(null);
+    setCheckoutStep("idle");
   }, []);
 
   // 인기 검색어 롤링
@@ -502,7 +522,17 @@ export default function RentPage() {
               </div>
             </div>
 
-            {readerMode ? (
+            {!publicSettings ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="size-8 animate-spin text-muted-foreground" />
+              </div>
+            ) : kioskMode ? (
+              <KioskPanel
+                logoutSec={kioskLogoutSec}
+                scannerEnabled={!scanning && !searchOpen && !book && !dupConfirm && checkoutStep === "idle"}
+                onSignedOut={handleKioskSignedOut}
+              />
+            ) : readerMode ? (
               /* 리더기 모드: input */
               <div className="flex-1 flex flex-col items-center justify-center gap-[2vh]">
                 <div className="w-full max-w-md rounded-2xl border-2 border-sky-500 bg-background p-[clamp(1.2rem,4vw,2rem)] space-y-[2vh]">

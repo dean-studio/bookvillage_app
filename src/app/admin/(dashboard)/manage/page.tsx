@@ -51,6 +51,7 @@ import {
   Globe,
   ChevronRight,
   LayoutGrid,
+  QrCode,
 } from "lucide-react";
 import { getBooks, getBookDeletions } from "@/app/actions/books";
 import { createQuiz } from "@/app/actions/quizzes";
@@ -63,7 +64,8 @@ type PendingAdmin = { id: string; name: string; created_at: string };
 type DeletionItem = { id: string; book_title: string; book_barcode: string; book_author: string | null; deleted_at: string; profiles: { name: string } | null };
 
 const settingsMenu = [
-  { href: "/admin/manage/site-type", icon: LayoutGrid, label: "사이트 유형", desc: "아파트, 학교, 마을 선택" },
+  { href: "/admin/manage/site-type", icon: LayoutGrid, label: "사이트 유형", desc: "아파트, 학교, 마을, 유치원 선택" },
+  { href: "/admin/manage/access", icon: QrCode, label: "로그인·대출 방식", desc: "QR 회원카드, 회원 가입, 홈 화면 리더기" },
   { href: "/admin/manage/site", icon: Building2, label: "사이트 기본정보", desc: "이름, 로고, 테마 설정" },
   { href: "/admin/manage/og", icon: Globe, label: "OG 메타데이터", desc: "공유 시 표시 제목/설명/이미지" },
   { href: "/admin/manage/library", icon: Settings, label: "도서관 설정", desc: "대출 권수, 기간, 신작 기준" },

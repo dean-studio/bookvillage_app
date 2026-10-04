@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Building2, GraduationCap, TreePine, Loader2, Check } from "lucide-react";
+import { ArrowLeft, Building2, GraduationCap, TreePine, Baby, Loader2, Check } from "lucide-react";
 import { getLibrarySettings, updateLibrarySetting } from "@/app/actions/settings";
 
 const SITE_TYPES = [
@@ -28,13 +28,28 @@ const SITE_TYPES = [
     example: "예: 300-3",
     icon: TreePine,
   },
+  {
+    value: "kindergarten",
+    label: "유치원",
+    desc: "반으로 아이를 구분하고 QR 회원카드로 대출합니다",
+    example: "예: 햇님반",
+    icon: Baby,
+  },
 ] as const;
+
+// 유치원 선택 시 함께 적용되는 로그인·대출 방식 (이후 개별 변경 가능)
+const KINDERGARTEN_PRESET: Record<string, string> = {
+  login_method: "qr",
+  signup_mode: "admin_only",
+  kiosk_mode: "on",
+};
 
 export default function SiteTypePage() {
   const router = useRouter();
   const [siteType, setSiteType] = useState("apartment");
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [presetApplied, setPresetApplied] = useState(false);
 
   useEffect(() => {
     getLibrarySettings().then((s) => {
@@ -47,7 +62,14 @@ export default function SiteTypePage() {
     if (value === siteType) return;
     setSaving(true);
     setSiteType(value);
+    setPresetApplied(false);
     await updateLibrarySetting("site_type", value);
+    if (value === "kindergarten") {
+      for (const [key, v] of Object.entries(KINDERGARTEN_PRESET)) {
+        await updateLibrarySetting(key, v);
+      }
+      setPresetApplied(true);
+    }
     setSaving(false);
   }
 
@@ -70,7 +92,7 @@ export default function SiteTypePage() {
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {SITE_TYPES.map((t) => {
             const isSelected = siteType === t.value;
             return (
@@ -102,6 +124,16 @@ export default function SiteTypePage() {
               </button>
             );
           })}
+        </div>
+      )}
+
+      {presetApplied && (
+        <div className="rounded-lg border border-primary/40 bg-primary/5 p-4 text-sm space-y-2">
+          <p className="font-semibold">로그인·대출 방식이 유치원용으로 함께 설정되었습니다.</p>
+          <p className="text-muted-foreground">QR 회원카드 로그인 · 관리자만 회원 생성 · 홈 화면 리더기 대출 ON</p>
+          <Button size="sm" variant="outline" onClick={() => router.push("/admin/manage/access")}>
+            로그인·대출 방식 확인
+          </Button>
         </div>
       )}
 

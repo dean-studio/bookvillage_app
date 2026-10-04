@@ -28,6 +28,16 @@ export async function signUp(formData: FormData): Promise<ActionResult> {
 
   const { phone_number, pin, name, dong_ho } = parsed.data
 
+  // 관리자만 회원 생성 가능한 지점(QR 카드 운영 등)은 본인 가입 차단
+  const { data: signupMode } = await supabaseAdmin
+    .from('library_settings')
+    .select('value')
+    .eq('key', 'signup_mode')
+    .maybeSingle()
+  if (signupMode?.value === 'admin_only') {
+    return { success: false, error: '회원가입은 관리자에게 문의해주세요.' }
+  }
+
   // 1. Auth 유저 생성
   const { data: authData, error: authError } = await supabaseAdmin.auth.admin.createUser({
     email: phoneToEmail(phone_number),

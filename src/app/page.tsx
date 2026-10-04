@@ -1,8 +1,12 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { getPublicSettings } from "@/app/actions/settings";
 
 export default async function Home() {
   const settings = await getPublicSettings();
+  // 홈 화면 리더기 모드: 대여하기 화면에서 카드 찍기 → 책 찍기
+  if (settings.kiosk_mode === "on") redirect("/rent");
+  const allowSignup = settings.signup_mode !== "admin_only";
   const name = settings.apartment_name || "작은도서관";
   const logoUrl = settings.logo_url || "/logo.png";
   const kakaoChannelId = settings.kakao_channel_id;
@@ -43,12 +47,14 @@ export default async function Home() {
             >
               로그인
             </Link>
-            <Link
-              href="/login?signup=1"
-              className="flex h-[8vh] min-h-16 items-center justify-center rounded-2xl border-2 border-primary bg-background text-[clamp(1.3rem,3.5vw,1.8rem)] font-semibold text-primary transition-transform active:scale-95 active:bg-primary/5"
-            >
-              회원가입
-            </Link>
+            {allowSignup && (
+              <Link
+                href="/login?signup=1"
+                className="flex h-[8vh] min-h-16 items-center justify-center rounded-2xl border-2 border-primary bg-background text-[clamp(1.3rem,3.5vw,1.8rem)] font-semibold text-primary transition-transform active:scale-95 active:bg-primary/5"
+              >
+                회원가입
+              </Link>
+            )}
           </div>
         </div>
       </div>

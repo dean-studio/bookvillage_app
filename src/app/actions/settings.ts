@@ -1,5 +1,6 @@
 'use server'
 
+import { revalidatePath } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getCurrentUser } from './auth'
@@ -23,7 +24,7 @@ export async function getPublicSettings() {
   const { data } = await supabaseAdmin
     .from('library_settings')
     .select('key, value')
-    .in('key', ['apartment_name', 'logo_url', 'og_title', 'og_description', 'og_image_url', 'site_type', 'color_theme', 'kakao_channel_id'])
+    .in('key', ['apartment_name', 'logo_url', 'og_title', 'og_description', 'og_image_url', 'site_type', 'color_theme', 'kakao_channel_id', 'login_method', 'signup_mode', 'kiosk_mode', 'kiosk_logout_sec'])
 
   const settings: Record<string, string> = {}
   for (const row of data ?? []) {
@@ -52,6 +53,8 @@ export async function updateLibrarySetting(key: string, value: string): Promise<
     return { success: false, error: '설정 저장에 실패했습니다.' }
   }
 
+  // 홈·메타데이터가 정적 생성되므로 설정 변경 즉시 반영
+  revalidatePath('/', 'layout')
   return { success: true }
 }
 
@@ -92,6 +95,7 @@ export async function uploadLogo(formData: FormData): Promise<ActionResult & { u
     .from('library_settings')
     .upsert({ key: 'logo_url', value: logoUrl, updated_at: new Date().toISOString() }, { onConflict: 'key' })
 
+  revalidatePath('/', 'layout')
   return { success: true, url: logoUrl }
 }
 
@@ -130,5 +134,6 @@ export async function uploadOgImage(formData: FormData): Promise<ActionResult & 
     .from('library_settings')
     .upsert({ key: 'og_image_url', value: imageUrl, updated_at: new Date().toISOString() }, { onConflict: 'key' })
 
+  revalidatePath('/', 'layout')
   return { success: true, url: imageUrl }
 }
