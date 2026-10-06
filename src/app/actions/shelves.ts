@@ -27,17 +27,19 @@ export async function getShelves() {
 
   if (!shelves) return []
 
-  // 각 서재의 도서 수 조회
-  const { data: bookCounts } = await supabase
-    .from('books')
-    .select('location_group')
-    .eq('is_deleted', false)
-
+  // 각 서재의 도서 수 조회 (기본 응답 한도 1,000행을 넘으므로 나눠서 읽음)
   const countMap: Record<string, number> = {}
-  if (bookCounts) {
-    for (const book of bookCounts) {
+  for (let from = 0; ; from += 1000) {
+    const { data: bookCounts } = await supabase
+      .from('books')
+      .select('location_group')
+      .eq('is_deleted', false)
+      .order('id')
+      .range(from, from + 999)
+    for (const book of bookCounts ?? []) {
       countMap[book.location_group] = (countMap[book.location_group] || 0) + 1
     }
+    if (!bookCounts || bookCounts.length < 1000) break
   }
 
   return shelves.map((shelf) => ({

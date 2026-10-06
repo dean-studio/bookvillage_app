@@ -78,7 +78,7 @@ type Shelf = {
 
 const FONT_SIZES = [0, 8, 10, 12, 14, 16, 18, 20, 24];
 
-const GRID_COLS = 26;
+const GRID_COLS = 27; // 초등K(초등J 오른쪽 좁은 칸) 자리까지
 const GRID_ROWS = 20;
 const CELL_SIZE = 60;
 
@@ -294,7 +294,10 @@ function ItemOverlay({ shelf }: { shelf: Shelf }) {
   );
 }
 
-const COL_LABELS = Array.from({ length: GRID_COLS }, (_, i) => String.fromCharCode(65 + i));
+// A~Z 다음은 AA, AB … (엑셀식)
+const COL_LABELS = Array.from({ length: GRID_COLS }, (_, i) =>
+  i < 26 ? String.fromCharCode(65 + i) : "A" + String.fromCharCode(65 + i - 26)
+);
 
 export function ShelfGrid() {
   const router = useRouter();
