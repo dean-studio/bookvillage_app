@@ -3,9 +3,10 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt, QrCode, Tags, ArrowRightLeft, FolderOpen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
+import { getPublicSettings } from "@/app/actions/settings";
 import { cn } from "@/lib/utils";
 
 type NavItem = { type?: "link"; href: string; label: string; icon: typeof LayoutDashboard; exact?: boolean } | { type: "divider" };
@@ -13,14 +14,16 @@ type NavItem = { type?: "link"; href: string; label: string; icon: typeof Layout
 const navItems: NavItem[] = [
   { href: "/admin", label: "대시보드", icon: LayoutDashboard, exact: true },
   { type: "divider" },
-  { href: "/admin/residents", label: "주민 목록", icon: Users },
+  { href: "/admin/residents", label: "회원 목록", icon: Users },
   { href: "/admin/rankings", label: "랭킹", icon: Trophy },
   { href: "/admin/reports", label: "독서록", icon: FileText },
   { type: "divider" },
   { href: "/admin/books", label: "전체 도서", icon: Library, exact: true },
+  { href: "/admin/classification", label: "분류 도서", icon: Tags },
   { href: "/admin/rentals", label: "대여중 도서", icon: BookCheck, exact: true },
   { href: "/admin/rentals/period", label: "기간별 대여", icon: CalendarRange },
   { href: "/admin/books/new", label: "도서 등록", icon: BookPlus },
+  { href: "/admin/books/move", label: "책장 이동", icon: ArrowRightLeft },
   { href: "/admin/checkout", label: "대출", icon: BookCheck },
   { href: "/admin/guest-checkout", label: "비회원 대출", icon: UserPlus },
   { type: "divider" },
@@ -31,6 +34,7 @@ const navItems: NavItem[] = [
   { href: "/admin/deletions", label: "도서 삭제내역", icon: Trash2 },
   { type: "divider" },
   { href: "/admin/notices", label: "공지사항", icon: Megaphone },
+  { href: "/admin/files", label: "자료실", icon: FolderOpen },
   { href: "/admin/books/barcodes", label: "바코드 생성", icon: Barcode },
   { href: "/admin/books/logo-print", label: "로고 인쇄", icon: Sticker },
   { href: "/admin/new-arrivals", label: "월별 신간", icon: Newspaper },
@@ -38,18 +42,23 @@ const navItems: NavItem[] = [
   { href: "/admin/manage", label: "관리", icon: Settings },
 ];
 
+// QR 회원카드 운영(유치원 등) 시 회원 목록 아래에 노출
+const qrCardItem: NavItem = { href: "/admin/residents/cards", label: "QR 카드 인쇄", icon: QrCode };
+
 // 서재 관리 페이지에서는 데스크톱에서도 사이드바를 접음
 const COLLAPSED_PATHS = ["/admin/books/new"];
 
 export function AdminSidebar() {
   const [open, setOpen] = useState(false);
   const [adminName, setAdminName] = useState<string>("");
+  const [qrMode, setQrMode] = useState(false);
   const pathname = usePathname();
 
   useEffect(() => {
     getCurrentUser().then((u) => {
       if (u?.name) setAdminName(u.name);
     });
+    getPublicSettings().then((s) => setQrMode(s.login_method === "qr"));
   }, []);
 
   const forceCollapsed = COLLAPSED_PATHS.some(
@@ -61,10 +70,14 @@ export function AdminSidebar() {
     setOpen(false);
   }, [pathname]);
 
+  const items = qrMode
+    ? navItems.flatMap((item) => ("href" in item && item.href === "/admin/residents" ? [item, qrCardItem] : [item]))
+    : navItems;
+
   const navContent = (
     <>
-      <ul className="flex-1 py-2">
-        {navItems.map((item, i) => {
+      <ul className="flex-1 min-h-0 overflow-y-auto overscroll-contain py-2">
+        {items.map((item, i) => {
           if (item.type === "divider") {
             return <li key={`div-${i}`} className="my-1 mx-4 border-t" />;
           }
@@ -88,7 +101,7 @@ export function AdminSidebar() {
           );
         })}
       </ul>
-      <div className="border-t p-4">
+      <div className="shrink-0 border-t p-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
         <form action={adminSignOut}>
           <button
             type="submit"
@@ -131,8 +144,8 @@ export function AdminSidebar() {
             className="absolute inset-0 bg-black/40 animate-in fade-in duration-200"
             onClick={() => setOpen(false)}
           />
-          <nav className="absolute left-0 top-0 bottom-0 w-64 bg-background border-r flex flex-col animate-in slide-in-from-left duration-200">
-            <div className="flex items-center justify-between p-4 border-b">
+          <nav className="absolute left-0 top-0 h-dvh w-64 bg-background border-r flex flex-col animate-in slide-in-from-left duration-200">
+            <div className="shrink-0 flex items-center justify-between p-4 border-b">
               <div className="flex items-center gap-2 min-w-0">
                 <UserCircle className="size-5 text-primary shrink-0" />
                 <span className="font-bold text-lg truncate">{adminName || "관리자"}</span>
@@ -168,7 +181,7 @@ export function AdminSidebar() {
             </form>
           </div>
           <ul className="flex-1">
-            {navItems.map((item, i) => {
+            {items.map((item, i) => {
               if (item.type === "divider") {
                 return <li key={`div-${i}`} className="my-1 mx-4 border-t" />;
               }

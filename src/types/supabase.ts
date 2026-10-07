@@ -9,6 +9,47 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      admin_files: {
+        Row: {
+          id: string
+          name: string
+          path: string
+          size: number
+          mime: string | null
+          memo: string | null
+          uploaded_by: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          path: string
+          size?: number
+          mime?: string | null
+          memo?: string | null
+          uploaded_by?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          path?: string
+          size?: number
+          mime?: string | null
+          memo?: string | null
+          uploaded_by?: string | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "admin_files_uploaded_by_fkey"
+            columns: ["uploaded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           id: string
@@ -18,6 +59,8 @@ export type Database = {
           role: 'resident' | 'admin'
           admin_status: 'pending' | 'approved' | null
           is_guest: boolean
+          contact_phone: string | null
+          memo: string | null
           notifications_read_at: string | null
           notices_read_at: string | null
           created_at: string
@@ -31,6 +74,8 @@ export type Database = {
           role?: 'resident' | 'admin'
           admin_status?: 'pending' | 'approved' | null
           is_guest?: boolean
+          contact_phone?: string | null
+          memo?: string | null
           notifications_read_at?: string | null
           notices_read_at?: string | null
           created_at?: string
@@ -44,6 +89,8 @@ export type Database = {
           role?: 'resident' | 'admin'
           admin_status?: 'pending' | 'approved' | null
           is_guest?: boolean
+          contact_phone?: string | null
+          memo?: string | null
           notifications_read_at?: string | null
           notices_read_at?: string | null
           created_at?: string
@@ -182,6 +229,12 @@ export type Database = {
           sale_status: string
           rental_days: number | null
           featured_until: string | null
+          age_group: string | null
+          sub_category: string | null
+          series_name: string | null
+          textbook_grades: number[]
+          classification_source: string | null
+          classified_at: string | null
           created_at: string
           updated_at: string
         }
@@ -207,6 +260,12 @@ export type Database = {
           sale_status?: string
           rental_days?: number | null
           featured_until?: string | null
+          age_group?: string | null
+          sub_category?: string | null
+          series_name?: string | null
+          textbook_grades?: number[]
+          classification_source?: string | null
+          classified_at?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -232,6 +291,12 @@ export type Database = {
           sale_status?: string
           rental_days?: number | null
           featured_until?: string | null
+          age_group?: string | null
+          sub_category?: string | null
+          series_name?: string | null
+          textbook_grades?: number[]
+          classification_source?: string | null
+          classified_at?: string | null
           created_at?: string
           updated_at?: string
         }
