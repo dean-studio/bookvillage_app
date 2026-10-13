@@ -264,6 +264,118 @@ export async function checkoutBookGuest(formData: FormData): Promise<ActionResul
   }
 }
 
+// 비회원 대출 화면에서 동호수/전화번호로 기존 이용자(회원·게스트 모두)를 찾아 자동 입력
+export type GuestCandidate = {
+  id: string
+  name: string
+  dong_ho: string
+  phone_number: string
+  is_guest: boolean
+  rental_count: number
+  last_rented_at: string | null
+}
+
+// "101-211" / "101 211" / "101동 211호" / "101동211호" / "101동" → { dong: '101', ho: '211' | '' }
+function parseDongHoQuery(raw: string): { dong: string; ho: string } | null {
+  const m = raw.trim().match(/^(\d+)\s*(?:동|-|\s)\s*(\d*)\s*호?$/)
+  if (!m) return null
+  return { dong: m[1], ho: m[2] }
+}
+
+// 동호수 패턴: "101동 211호"와 "101동211호"(공백 없음) 모두 매칭, 동·호 각각 앞자리(prefix) 매칭
+function dongHoPatterns(dong: string, ho: string): string[] {
+  if (!ho) return [`${dong}%동%`]
+  return [`${dong}%동 ${ho}%`, `${dong}%동${ho}%`]
+}
+
+export async function searchGuestCandidates(
+  query: string,
+  mode: 'any' | 'dong_ho' | 'phone' = 'any',
+) {
+  const admin = await getCurrentUser()
+  if (!admin || admin.role !== 'admin') {
+    return { success: false as const, error: '권한이 없습니다.' }
+  }
+
+  // ilike 패턴에는 숫자·동·호·공백만 들어가도록 입력을 정제 (%, _, 쉼표 등 제거)
+  const raw = query.replace(/[^\d\s동호-]/g, '').trim()
+  const digits = raw.replace(/\D/g, '')
+  if (!digits) return { success: true as const, data: [] as GuestCandidate[] }
+
+  const ors: string[] = []
+  const parsed = mode === 'phone' ? null : parseDongHoQuery(raw)
+
+  if (mode !== 'phone') {
+    if (parsed) {
+      for (const p of dongHoPatterns(parsed.dong, parsed.ho)) ors.push(`dong_ho.ilike.${p}`)
+    } else if (/^\d+$/.test(raw)) {
+      // 숫자만: 동 앞자리 매칭 + "101211"처럼 붙여 쓴 경우 3자리 동 + 나머지 호로도 시도
+      ors.push(`dong_ho.ilike.${raw}%`)
+      if (raw.length >= 4) {
+        for (const p of dongHoPatterns(raw.slice(0, 3), raw.slice(3))) ors.push(`dong_ho.ilike.${p}`)
+      }
+    }
+  }
+  if (mode !== 'dong_ho' && !parsed && digits.length >= 3) {
+    // 전화번호: 뒷자리 4자리만 입력해도 찾을 수 있게 부분 일치
+    ors.push(`phone_number.ilike.%${digits}%`)
+  }
+  if (ors.length === 0) return { success: true as const, data: [] as GuestCandidate[] }
+
+  const { data: profiles, error } = await supabaseAdmin
+    .from('profiles')
+    .select('id, name, dong_ho, phone_number, is_guest')
+    .neq('role', 'admin')
+    .or(ors.join(','))
+    .limit(30)
+
+  if (error) return { success: false as const, error: '검색에 실패했습니다.' }
+  if (!profiles || profiles.length === 0) return { success: true as const, data: [] as GuestCandidate[] }
+
+  // 대출 이력(횟수·최근 대출일)은 후보 전체를 한 번에 조회해 정렬에 사용 (N+1 방지)
+  const ids = profiles.map((p) => p.id)
+  const { data: rentals } = await supabaseAdmin
+    .from('rentals')
+    .select('user_id, rented_at')
+    .in('user_id', ids)
+    .order('rented_at', { ascending: false })
+    .limit(1000)
+
+  const stats = new Map<string, { count: number; last: string | null }>()
+  for (const r of rentals ?? []) {
+    const s = stats.get(r.user_id) ?? { count: 0, last: null }
+    s.count += 1
+    if (!s.last || (r.rented_at && r.rented_at > s.last)) s.last = r.rented_at as string
+    stats.set(r.user_id, s)
+  }
+
+  // 정렬: 동호수 정확 일치 > 최근 대출순 > 이름순
+  const exact = parsed && parsed.ho ? `${parsed.dong}동${parsed.ho}호` : null
+  const normalize = (s: string) => s.replace(/\s/g, '')
+  const candidates: GuestCandidate[] = profiles.map((p) => ({
+    id: p.id,
+    name: p.name,
+    dong_ho: p.dong_ho,
+    phone_number: p.phone_number,
+    is_guest: !!p.is_guest,
+    rental_count: stats.get(p.id)?.count ?? 0,
+    last_rented_at: stats.get(p.id)?.last ?? null,
+  }))
+  candidates.sort((a, b) => {
+    const ea = exact && normalize(a.dong_ho) === exact ? 1 : 0
+    const eb = exact && normalize(b.dong_ho) === exact ? 1 : 0
+    if (ea !== eb) return eb - ea
+    if (a.last_rented_at !== b.last_rented_at) {
+      if (!a.last_rented_at) return 1
+      if (!b.last_rented_at) return -1
+      return a.last_rented_at < b.last_rented_at ? 1 : -1
+    }
+    return a.name.localeCompare(b.name, 'ko')
+  })
+
+  return { success: true as const, data: candidates.slice(0, 10) }
+}
+
 export async function returnBook(formData: FormData): Promise<ActionResult<ReturnResult>> {
   const admin = await getCurrentUser()
   if (!admin || admin.role !== 'admin') {
