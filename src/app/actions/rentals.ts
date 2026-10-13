@@ -1152,6 +1152,7 @@ export async function getAllResidents() {
     .from('profiles')
     .select('id, name, dong_ho, phone_number, contact_phone, role, created_at')
     .eq('role', 'resident')
+    .eq('is_guest', false) // 비회원은 /admin/guests 에서 따로 관리
     .order('created_at', { ascending: false })
 
   return data ?? []
