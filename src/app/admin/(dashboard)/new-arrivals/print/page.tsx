@@ -21,6 +21,39 @@ function cardWidthMm(cols: number): number {
   return (CONTENT_W - (cols - 1) * GAP_X) / cols;
 }
 
+type Layout = "list" | "grid";
+
+// 목록형 양옆 표지: 제목 표가 우선. 양쪽 한 줄씩 6권, 표 높이에 맞춘 폭으로 원래 비율(안 잘림)대로 놓는다.
+const SIDE_PER = 6; // 한쪽 표지 수 기본값
+const SIDE_GAP = 4; // mm
+const COVER_RATIO = 1.45; // 표지 세로/가로 추정
+const TABLE_FONT = 13; // 표 글자 크기 기본값(px)
+
+// 표 한 줄 높이 추정(mm) = 위아래 여백 3.2mm + 줄 높이(글자 px × 1.375 × 0.2646mm)
+function rowHeightMm(fontPx: number): number {
+  return 3.2 + fontPx * 0.364;
+}
+
+// 기본 표지 폭(mm): 표 높이(책 권수 + 헤더) 안에 n장이 들어가는 폭보다 15% 크게, 18~32mm
+function sideCoverWidth(rowCount: number, n: number, fontPx: number): number {
+  const tableH = rowCount * rowHeightMm(fontPx) + 10;
+  const w = ((tableH - (n - 1) * SIDE_GAP) / n / COVER_RATIO) * 1.15;
+  return Math.round(Math.min(32, Math.max(18, w)));
+}
+
+function SideCovers({ covers, width }: { covers: string[]; width: number }) {
+  return (
+    <div className="newbook-side flex shrink-0 flex-col justify-between" style={{ width: `${width}mm`, gap: `${SIDE_GAP}mm` }}>
+      {covers.map((src, i) => (
+        <div key={i} className="overflow-hidden rounded-md bg-neutral-100 shadow-[0_4px_12px_-4px_rgba(0,0,0,0.3)]">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={src} alt="" className="block h-auto w-full" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function NewArrivalsPrint() {
   const params = useSearchParams();
   const month = params.get("month") || currentYearMonth();
@@ -28,8 +61,12 @@ function NewArrivalsPrint() {
   const [libName, setLibName] = useState("자람도서관");
   const [loading, setLoading] = useState(true);
 
-  // 레이아웃 조절: 열 수 + 배율(자동/수동)
+  // 레이아웃 조절: 목록형/표지형, 열 수(표지형) + 배율(자동/수동)
+  const [layout, setLayout] = useState<Layout>("list");
   const [cols, setCols] = useState(5);
+  const [sidePer, setSidePer] = useState(SIDE_PER); // 목록형 한쪽 표지 수
+  const [tableFont, setTableFont] = useState(TABLE_FONT); // 목록형 표 글자 크기(px)
+  const [manualSideW, setManualSideW] = useState<number | null>(null); // 목록형 표지 폭(mm), null = 자동
   const [manualZoom, setManualZoom] = useState<number | null>(null); // null = 자동 맞춤
 
   // A4 한 장 자동 맞춤: 헤더(타이틀)는 고정, 그 아래 섹션만 축소
@@ -111,7 +148,7 @@ function NewArrivalsPrint() {
       window.removeEventListener("beforeprint", fit);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, items, cols, manualZoom]);
+  }, [loading, items, layout, cols, sidePer, manualSideW, tableFont, manualZoom]);
 
   // 배율 수동 조절 (현재 배율 기준 ±5%)
   function bumpZoom(delta: number) {
@@ -120,7 +157,7 @@ function NewArrivalsPrint() {
     setManualZoom(next);
   }
 
-  const [y, m] = month.split("-");
+  const [, m] = month.split("-");
   const monthNum = parseInt(m, 10);
   const cardW = cardWidthMm(cols);
 
@@ -133,6 +170,16 @@ function NewArrivalsPrint() {
   const flatBooks = groups.flatMap((g) =>
     g.books.map((book) => ({ book, color: g.color, label: g.label }))
   );
+
+  // 목록형: 책 한 권 = 한 줄 + 양옆 표지
+  const hasAuthor = items.some((it) => it.author);
+  // 양옆 표지: 한쪽 sidePer권씩 목록 순서대로 고르게 → 앞쪽(유아·어린이) 왼쪽, 뒤쪽(청소년·성인) 오른쪽
+  const covers = [...new Set(flatBooks.map(({ book }) => book.cover_image).filter((c): c is string => !!c))];
+  const pickN = Math.min(sidePer * 2, covers.length);
+  const picked = Array.from({ length: pickN }, (_, i) => covers[Math.floor((i * covers.length) / pickN)]);
+  const leftCovers = picked.slice(0, Math.ceil(pickN / 2));
+  const rightCovers = picked.slice(Math.ceil(pickN / 2));
+  const sideW = manualSideW ?? sideCoverWidth(items.length, Math.max(1, leftCovers.length), tableFont);
 
   return (
     <div className="space-y-4">
@@ -147,7 +194,105 @@ function NewArrivalsPrint() {
 
       {/* 레이아웃 조절 (인쇄 시 숨김) */}
       <div className="print:hidden flex flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-        {/* 한 줄 권수 */}
+        {/* 레이아웃 */}
+        <div className="flex items-center rounded-md border bg-background p-0.5">
+          {(
+            [
+              ["list", "목록형"],
+              ["grid", "표지형"],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              className={`h-7 rounded px-3 font-medium ${layout === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              onClick={() => setLayout(v)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* 한쪽 표지 수 (목록형) */}
+        {layout === "list" && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">표지 수</span>
+            <div className="flex items-center rounded-md border bg-background">
+              <button
+                className="icon-btn size-8 flex items-center justify-center hover:text-primary disabled:opacity-30"
+                onClick={() => setSidePer((n) => Math.max(0, n - 1))}
+                disabled={sidePer <= 0}
+              >
+                <Minus className="size-4" />
+              </button>
+              <span className="w-16 text-center font-semibold tabular-nums">양쪽 {sidePer}권</span>
+              <button
+                className="icon-btn size-8 flex items-center justify-center hover:text-primary disabled:opacity-30"
+                onClick={() => setSidePer((n) => Math.min(12, n + 1))}
+                disabled={sidePer >= 12}
+              >
+                <Plus className="size-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 표 글자 크기 (목록형) */}
+        {layout === "list" && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">글자 크기</span>
+            <div className="flex items-center rounded-md border bg-background">
+              <button
+                className="icon-btn size-8 flex items-center justify-center hover:text-primary disabled:opacity-30"
+                onClick={() => setTableFont((n) => Math.max(10, n - 1))}
+                disabled={tableFont <= 10}
+              >
+                <Minus className="size-4" />
+              </button>
+              <span className="w-12 text-center font-semibold tabular-nums">{tableFont}px</span>
+              <button
+                className="icon-btn size-8 flex items-center justify-center hover:text-primary disabled:opacity-30"
+                onClick={() => setTableFont((n) => Math.min(22, n + 1))}
+                disabled={tableFont >= 22}
+              >
+                <Plus className="size-4" />
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* 표지 크기 (목록형) */}
+        {layout === "list" && (
+          <div className="flex items-center gap-2">
+            <span className="text-muted-foreground">표지 크기</span>
+            <div className="flex items-center rounded-md border bg-background">
+              <button
+                className="icon-btn size-8 flex items-center justify-center hover:text-primary disabled:opacity-30"
+                onClick={() => setManualSideW(Math.max(14, sideW - 2))}
+                disabled={sideW <= 14}
+              >
+                <Minus className="size-4" />
+              </button>
+              <span className="w-14 text-center font-semibold tabular-nums">{sideW}mm</span>
+              <button
+                className="icon-btn size-8 flex items-center justify-center hover:text-primary disabled:opacity-30"
+                onClick={() => setManualSideW(Math.min(40, sideW + 2))}
+                disabled={sideW >= 40}
+              >
+                <Plus className="size-4" />
+              </button>
+            </div>
+            {manualSideW !== null ? (
+              <button className="text-primary underline underline-offset-2" onClick={() => setManualSideW(null)}>
+                자동
+              </button>
+            ) : (
+              <span className="text-xs text-muted-foreground">자동</span>
+            )}
+          </div>
+        )}
+
+        {/* 한 줄 권수 (표지형) */}
+        {layout === "grid" && (
         <div className="flex items-center gap-2">
           <span className="text-muted-foreground">한 줄</span>
           <div className="flex items-center rounded-md border bg-background">
@@ -168,6 +313,7 @@ function NewArrivalsPrint() {
             </button>
           </div>
         </div>
+        )}
 
         {/* 배율 */}
         <div className="flex items-center gap-2">
@@ -197,7 +343,7 @@ function NewArrivalsPrint() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          한 줄 권수와 크기를 조절할 수 있어요. &quot;자동&quot;은 A4 한 장에 맞게 자동 축소합니다.
+          {layout === "list" ? "표지 크기는 표지 수와 책 권수에 맞춰 자동으로 정해져요." : "한 줄 권수와 크기를 조절할 수 있어요."} &quot;자동&quot;은 A4 한 장에 맞게 자동 축소합니다.
         </p>
       </div>
 
@@ -224,15 +370,53 @@ function NewArrivalsPrint() {
               <h2 className="newbook-title text-4xl font-extrabold text-neutral-900 leading-tight">
                 <span className="text-primary">{monthNum}월</span> {libName} 신간도서
               </h2>
-              <p className="newbook-subtitle text-sm text-neutral-400 tracking-wide">
-                {y}. {String(monthNum).padStart(2, "0")} · 이달의 새로운 책 {items.length}권을 소개합니다
-              </p>
             </div>
             <div className="newbook-rule mt-5 h-px w-full bg-gradient-to-r from-transparent via-neutral-200 to-transparent" />
           </header>
 
           {/* 범례 + 한 줄 흐름 그리드 (헤더 제외, 이 블록만 스케일) */}
           <div ref={sectionsRef}>
+            {layout === "list" ? (
+              <div className="flex items-stretch gap-[4mm]">
+                {leftCovers.length > 0 && <SideCovers covers={leftCovers} width={sideW} />}
+                <div className="min-w-0 flex-1">
+                  <table className="newbook-table h-full w-full border-collapse leading-snug" style={{ fontSize: `${tableFont}px` }}>
+                    <thead>
+                      <tr className="bg-neutral-800 text-white">
+                        <th className="w-[17mm] py-2 font-bold tracking-[0.3em]">분류</th>
+                        <th className="py-2 font-bold tracking-[0.3em]">책 제목</th>
+                        {hasAuthor && <th className="w-[24mm] py-2 font-bold tracking-[0.3em]">저자</th>}
+                      </tr>
+                    </thead>
+                    {groups.map((g) => (
+                      <tbody key={g.value} className="border-t-2 border-neutral-700" style={{ backgroundColor: `${g.color}0f` }}>
+                        {g.books.map((r, i) => (
+                          <tr key={r.id} className="border-b border-dashed border-neutral-300 last:border-b-0">
+                            {i === 0 && (
+                              <td
+                                rowSpan={g.books.length}
+                                className="whitespace-nowrap border-r border-neutral-300 px-2 pt-2 text-center align-top text-[1.08em] font-extrabold"
+                                style={{ color: g.color }}
+                              >
+                                {g.label}
+                              </td>
+                            )}
+                            <td className="px-3 py-[1.6mm] font-semibold text-neutral-800 break-keep">{r.title}</td>
+                            {hasAuthor && (
+                              <td className="border-l border-neutral-300 px-1.5 text-center text-[0.85em] text-neutral-500 break-keep">
+                                {r.author}
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    ))}
+                  </table>
+                </div>
+                {rightCovers.length > 0 && <SideCovers covers={rightCovers} width={sideW} />}
+              </div>
+            ) : (
+            <>
             {/* 분류 색상 범례 */}
             <div className="newbook-legend flex flex-wrap items-center justify-center gap-x-5 gap-y-2 mb-6">
               {groups.map((g) => (
@@ -293,6 +477,8 @@ function NewArrivalsPrint() {
                 </div>
               ))}
             </div>
+            </>
+            )}
           </div>
           </div>
         </div>
