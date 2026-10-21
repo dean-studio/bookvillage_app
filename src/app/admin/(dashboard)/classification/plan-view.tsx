@@ -28,7 +28,7 @@ const ZONE_COLOR: Record<PlanZone, string> = {
   spare: "#78716c",
 };
 
-const COLS = 27;
+const COLS = 28;
 const ROWS = 18;
 const CELL = 56; // 2칸 책장에 "초등단행본A" 같은 이름이 한 줄에 들어가는 크기
 

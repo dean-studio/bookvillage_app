@@ -78,7 +78,7 @@ type Shelf = {
 
 const FONT_SIZES = [0, 8, 10, 12, 14, 16, 18, 20, 24];
 
-const GRID_COLS = 27; // 초등K(초등J 오른쪽 좁은 칸) 자리까지
+const GRID_COLS = 28; // AB열까지 (기타 칸을 2칸 폭으로)
 const GRID_ROWS = 20;
 const CELL_SIZE = 60;
 
