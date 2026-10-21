@@ -347,7 +347,8 @@ export async function getBookRentalCount(bookId: string): Promise<{ total: numbe
   return { total: total ?? 0, active: active ?? 0 }
 }
 
-export async function deleteBook(bookId: string): Promise<ActionResult> {
+// lost: 대출 중인 책을 분실로 보고 대출을 끝낸 뒤 삭제 (반납 절차 없이, 유치원 모드만)
+export async function deleteBook(bookId: string, options?: { lost?: boolean }): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user || user.role !== 'admin') {
     return { success: false, error: '권한이 없습니다.' }
@@ -363,7 +364,21 @@ export async function deleteBook(bookId: string): Promise<ActionResult> {
     .maybeSingle()
 
   if (activeRental) {
-    return { success: false, error: '현재 대출 중인 도서는 삭제할 수 없습니다.' }
+    const { data: siteType } = await supabaseAdmin
+      .from('library_settings')
+      .select('value')
+      .eq('key', 'site_type')
+      .maybeSingle()
+    if (!options?.lost || siteType?.value !== 'kindergarten') {
+      return { success: false, error: '현재 대출 중인 도서는 삭제할 수 없습니다.' }
+    }
+    const { error: returnError } = await supabaseAdmin
+      .from('rentals')
+      .update({ returned_at: new Date().toISOString(), returned_by: user.id })
+      .eq('id', activeRental.id)
+    if (returnError) {
+      return { success: false, error: '대출 기록 정리에 실패했습니다.' }
+    }
   }
 
   // Fetch book info for deletion log
@@ -391,6 +406,7 @@ export async function deleteBook(bookId: string): Promise<ActionResult> {
       book_barcode: book.barcode,
       book_author: book.author,
       deleted_by: user.id,
+      ...(activeRental ? { reason: '분실 (대출 중 삭제)' } : {}),
     })
   }
 

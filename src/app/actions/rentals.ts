@@ -1144,6 +1144,49 @@ export async function selfCheckout(barcode: string): Promise<ActionResult<{ book
   }
 }
 
+// 키오스크(리더기) 반납: 회원카드 없이 책 바코드만 찍어도 반납. 유치원 모드 + 키오스크 모드인 지점에서만
+// returned: 반납함 / not_rented: 대출 중이 아닌 책 (로그인한 회원이면 대출로 이어감)
+export async function kioskReturn(
+  barcode: string
+): Promise<ActionResult<{ status: 'returned' | 'not_rented'; book_title: string }>> {
+  const { data: settings } = await supabaseAdmin
+    .from('library_settings')
+    .select('key, value')
+    .in('key', ['kiosk_mode', 'site_type'])
+  const setting = (key: string) => settings?.find((s) => s.key === key)?.value
+  if (setting('kiosk_mode') !== 'on' || setting('site_type') !== 'kindergarten') {
+    return { success: false, error: '반납은 관리자에게 맡겨주세요.' }
+  }
+
+  const { data: book } = await supabaseAdmin
+    .from('books')
+    .select('id, title')
+    .eq('barcode', barcode.trim())
+    .eq('is_deleted', false)
+    .maybeSingle()
+  if (!book) return { success: false, error: '등록되지 않은 도서입니다.' }
+
+  const { data: rental } = await supabaseAdmin
+    .from('rentals')
+    .select('id, user_id')
+    .eq('book_id', book.id)
+    .is('returned_at', null)
+    .limit(1)
+    .maybeSingle()
+  if (!rental) return { success: true, data: { status: 'not_rented', book_title: book.title } }
+
+  const user = await getCurrentUser()
+  const { error } = await supabaseAdmin
+    .from('rentals')
+    .update({ returned_at: new Date().toISOString(), returned_by: user?.id ?? null })
+    .eq('id', rental.id)
+  if (error) return { success: false, error: '반납 처리에 실패했습니다.' }
+
+  awardJellyForReturn(rental.user_id, book.title, book.id).catch(() => {})
+
+  return { success: true, data: { status: 'returned', book_title: book.title } }
+}
+
 export async function getAllResidents() {
   const admin = await getCurrentUser()
   if (!admin || admin.role !== 'admin') return []

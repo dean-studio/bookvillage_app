@@ -9,9 +9,9 @@ import { useScannerInput } from "@/hooks/use-scanner-input";
 import { isMemberCardCode, normalizeScanInput } from "@/lib/member-card";
 import { signInByCard, kioskSignOut } from "@/app/actions/member-cards";
 import { getCurrentUser } from "@/app/actions/auth";
-import { selfCheckout } from "@/app/actions/rentals";
+import { selfCheckout, kioskReturn } from "@/app/actions/rentals";
 
-type Borrowed = { title: string; due_date: string };
+type Borrowed = { barcode: string; title: string; due_date: string };
 type Message = { type: "success" | "error"; text: string } | null;
 
 const BYE_MS = 5000;
@@ -22,12 +22,16 @@ function formatDue(date: string) {
 
 // 홈 화면 리더기 대출(유치원 등): 대여하기 화면 가운데에서
 // 회원카드 찍기 → 책 바코드 찍기 → 자동 대출 → 일정 시간 후 자동 로그아웃
+// 반납(유치원 모드만): 대출 중인 책 바코드를 찍으면 카드 없이도 바로 반납
 export function KioskPanel({
   logoutSec,
+  allowReturn,
   scannerEnabled,
   onSignedOut,
 }: {
   logoutSec: number;
+  /** 유치원 모드: 책 바코드를 찍으면 반납도 받음 */
+  allowReturn: boolean;
   /** 도서 정보/검색 등 오버레이가 열려 있으면 리더기 입력을 받지 않음 */
   scannerEnabled: boolean;
   /** 자동 로그아웃 시 대여 화면 상태 초기화 */
@@ -45,6 +49,10 @@ export function KioskPanel({
   useEffect(() => {
     phaseRef.current = phase;
   }, [phase]);
+  const borrowedRef = useRef(borrowed);
+  useEffect(() => {
+    borrowedRef.current = borrowed;
+  }, [borrowed]);
   const messageTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const byeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -134,16 +142,33 @@ export function KioskPanel({
         return;
       }
 
-      // 책 바코드
-      if (phaseRef.current !== "member") {
-        showMessage({ type: "error", text: "먼저 회원카드를 찍어주세요" });
+      // 책 바코드: 방금 빌린 책이 한 번 더 찍히면 반납되지 않게 무시
+      const member = phaseRef.current === "member";
+      if (member) setRemaining(logoutSec);
+      if (member && borrowedRef.current.some((b) => b.barcode === code)) {
+        showMessage({ type: "success", text: "이미 빌린 책이에요" });
         return;
       }
-      setRemaining(logoutSec);
+      // 대출 중인 책이면 반납, 아니면 (회원이 찍었을 때) 대출
+      if (allowReturn) {
+        const ret = await kioskReturn(code);
+        if (!ret.success || !ret.data) {
+          showMessage({ type: "error", text: ret.error ?? "반납에 실패했습니다." });
+          return;
+        }
+        if (ret.data.status === "returned") {
+          showMessage({ type: "success", text: `「${ret.data.book_title}」 반납 완료!` });
+          return;
+        }
+      }
+      if (!member) {
+        showMessage({ type: "error", text: allowReturn ? "책을 빌리려면 먼저 회원카드를 찍어주세요" : "먼저 회원카드를 찍어주세요" });
+        return;
+      }
       const result = await selfCheckout(code);
       if (result.success && result.data) {
         const item = result.data;
-        setBorrowed((prev) => [...prev, { title: item.book_title, due_date: item.due_date }]);
+        setBorrowed((prev) => [...prev, { barcode: code, title: item.book_title, due_date: item.due_date }]);
         showMessage({ type: "success", text: `「${item.book_title}」 대출 완료!` });
       } else {
         showMessage({ type: "error", text: result.error ?? "대출에 실패했습니다." });
@@ -194,6 +219,11 @@ export function KioskPanel({
               <p className="text-[clamp(1.1rem,3vw,1.6rem)] text-muted-foreground">
                 QR 코드를 리더기에 대면 책을 빌릴 수 있어요
               </p>
+              {allowReturn && (
+                <p className="text-[clamp(1.1rem,3vw,1.6rem)] text-muted-foreground">
+                  반납할 책은 카드 없이 바코드를 바로 찍어주세요
+                </p>
+              )}
             </div>
           </>
         )}
@@ -231,6 +261,7 @@ export function KioskPanel({
           <span className="text-primary">{memberName}</span> 안녕하세요!
         </p>
         <p className="text-[clamp(1.8rem,5.5vw,3rem)] font-bold leading-tight">빌릴 책의 바코드를 찍어주세요</p>
+        {allowReturn && <p className="text-[clamp(1rem,2.6vw,1.3rem)] text-muted-foreground">반납할 책을 찍으면 반납돼요</p>}
         <p className="text-[clamp(0.85rem,2vw,1.05rem)] text-muted-foreground/70 tabular-nums">
           {remaining}초 동안 입력이 없으면 자동으로 끝나요
         </p>

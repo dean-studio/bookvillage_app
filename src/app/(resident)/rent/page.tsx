@@ -529,6 +529,7 @@ export default function RentPage() {
             ) : kioskMode ? (
               <KioskPanel
                 logoutSec={kioskLogoutSec}
+                allowReturn={publicSettings?.site_type === "kindergarten"}
                 scannerEnabled={!scanning && !searchOpen && !book && !dupConfirm && checkoutStep === "idle"}
                 onSignedOut={handleKioskSignedOut}
               />

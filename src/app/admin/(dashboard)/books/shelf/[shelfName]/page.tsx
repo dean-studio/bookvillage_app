@@ -32,6 +32,7 @@ import {
 import { getShelfBooks } from "@/app/actions/shelves";
 import { createBook, updateBook, deleteBook, checkBarcodeExists, getBookRentalCount, generateBarcodes } from "@/app/actions/books";
 import { getCurrentUser } from "@/app/actions/auth";
+import { getPublicSettings } from "@/app/actions/settings";
 import { uploadBookCoverImage } from "@/lib/storage";
 import { hangulToLatinKeys } from "@/lib/utils";
 
@@ -103,6 +104,12 @@ export default function ShelfBooksPage() {
   const [adminName, setAdminName] = useState("");
   useEffect(() => {
     getCurrentUser().then((u) => { if (u?.name) setAdminName(u.name); });
+  }, []);
+
+  // 유치원 모드: 대출 중인 책도 분실로 처리해 삭제 가능
+  const [kindergarten, setKindergarten] = useState(false);
+  useEffect(() => {
+    getPublicSettings().then((s) => setKindergarten(s.site_type === "kindergarten"));
   }, []);
 
   // Manual entry mode (ISBN 없는 도서)
@@ -553,10 +560,10 @@ export default function ShelfBooksPage() {
     });
   }
 
-  function handleDelete() {
+  function handleDelete(lost = false) {
     if (!deleteTarget) return;
     startDelete(async () => {
-      const result = await deleteBook(deleteTarget.id);
+      const result = await deleteBook(deleteTarget.id, { lost });
       if (result.success) {
         setDeleteTarget(null);
         setDeleteRentalInfo(null);
@@ -1495,11 +1502,29 @@ export default function ShelfBooksPage() {
                 <>
                   <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
                     <AlertCircle className="size-5 text-destructive shrink-0 mt-0.5" />
-                    <p className="text-base text-destructive">
-                      현재 대출 중인 도서는 삭제할 수 없습니다.
-                    </p>
+                    {kindergarten ? (
+                      <p className="text-base text-destructive">
+                        &quot;{deleteTarget.title}&quot;은(는) 지금 대출 중이에요.
+                        <br />
+                        잃어버린 책이면 반납하지 않고 분실로 처리해 삭제할 수 있어요.
+                      </p>
+                    ) : (
+                      <p className="text-base text-destructive">
+                        현재 대출 중인 도서는 삭제할 수 없습니다.
+                      </p>
+                    )}
                   </div>
-                  <Button variant="outline" className="w-full h-14 text-lg" onClick={() => { setDeleteTarget(null); setDeleteRentalInfo(null); }}>닫기</Button>
+                  {kindergarten ? (
+                    <div className="flex gap-3">
+                      <Button variant="outline" className="flex-1 h-14 text-lg" onClick={() => { setDeleteTarget(null); setDeleteRentalInfo(null); }}>취소</Button>
+                      <Button variant="destructive" className="flex-1 h-14 text-lg" onClick={() => handleDelete(true)} disabled={isDeleting}>
+                        {isDeleting ? <Loader2 className="size-5 mr-2 animate-spin" /> : <Trash2 className="size-5 mr-2" />}
+                        분실 처리 후 삭제
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button variant="outline" className="w-full h-14 text-lg" onClick={() => { setDeleteTarget(null); setDeleteRentalInfo(null); }}>닫기</Button>
+                  )}
                 </>
               ) : (
                 <>
@@ -1516,7 +1541,7 @@ export default function ShelfBooksPage() {
                   )}
                   <div className="flex gap-3">
                     <Button variant="outline" className="flex-1 h-14 text-lg" onClick={() => { setDeleteTarget(null); setDeleteRentalInfo(null); }}>취소</Button>
-                    <Button variant="destructive" className="flex-1 h-14 text-lg" onClick={handleDelete} disabled={isDeleting}>
+                    <Button variant="destructive" className="flex-1 h-14 text-lg" onClick={() => handleDelete()} disabled={isDeleting}>
                       {isDeleting ? <Loader2 className="size-5 mr-2 animate-spin" /> : <Trash2 className="size-5 mr-2" />}
                       삭제
                     </Button>
