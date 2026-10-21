@@ -14,6 +14,19 @@ import { Megaphone, Plus, Loader2, Pencil, Trash2, X, Camera, ImageIcon } from "
 import { getAllNotices, createNotice, updateNotice, deleteNotice, type Notice } from "@/app/actions/notices";
 import { uploadNoticeImage } from "@/lib/storage";
 
+const todayKST = () => new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Seoul" });
+const shortDate = (d: string) => { const [, m, day] = d.split("-"); return `${Number(m)}/${Number(day)}`; };
+
+// 게시 기간 기준 상태 (기간이 없으면 표시 안 함)
+function periodStatus(n: Notice): { label: string; className: string } | null {
+  if (!n.starts_on && !n.ends_on) return null;
+  const today = todayKST();
+  const range = `${n.starts_on ? shortDate(n.starts_on) : ""} ~ ${n.ends_on ? shortDate(n.ends_on) : ""}`;
+  if (n.starts_on && today < n.starts_on) return { label: `게시 예정 · ${range}`, className: "bg-blue-100 text-blue-700 dark:bg-blue-950 dark:text-blue-300" };
+  if (n.ends_on && today > n.ends_on) return { label: `게시 끝 · ${range}`, className: "bg-muted text-muted-foreground" };
+  return { label: `게시 중 · ${range}`, className: "bg-green-100 text-green-700 dark:bg-green-950 dark:text-green-300" };
+}
+
 export default function AdminNoticesPage() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,6 +36,8 @@ export default function AdminNoticesPage() {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [imageUrl, setImageUrl] = useState("");
+  const [startsOn, setStartsOn] = useState("");
+  const [endsOn, setEndsOn] = useState("");
   const [isUploading, setIsUploading] = useState(false);
   const [error, setError] = useState("");
   const [isSaving, startSave] = useTransition();
@@ -39,12 +54,12 @@ export default function AdminNoticesPage() {
 
   function openCreate() {
     setEditing(null);
-    setTitle(""); setContent(""); setImageUrl(""); setError("");
+    setTitle(""); setContent(""); setImageUrl(""); setStartsOn(""); setEndsOn(""); setError("");
     setDialogOpen(true);
   }
   function openEdit(n: Notice) {
     setEditing(n);
-    setTitle(n.title); setContent(n.content); setImageUrl(n.image_url || ""); setError("");
+    setTitle(n.title); setContent(n.content); setImageUrl(n.image_url || ""); setStartsOn(n.starts_on || ""); setEndsOn(n.ends_on || ""); setError("");
     setDialogOpen(true);
   }
 
@@ -64,12 +79,15 @@ export default function AdminNoticesPage() {
 
   function handleSave() {
     if (!title.trim()) { setError("제목을 입력해주세요."); return; }
+    if (startsOn && endsOn && endsOn < startsOn) { setError("종료일이 시작일보다 빠릅니다."); return; }
     setError("");
     startSave(async () => {
       const fd = new FormData();
       fd.set("title", title);
       fd.set("content", content);
       fd.set("image_url", imageUrl);
+      fd.set("starts_on", startsOn);
+      fd.set("ends_on", endsOn);
       const result = editing ? await updateNotice(editing.id, fd) : await createNotice(fd);
       if (!result.success) { setError(result.error || "저장 실패"); return; }
       setDialogOpen(false);
@@ -122,7 +140,13 @@ export default function AdminNoticesPage() {
                   <div className="min-w-0 flex-1">
                     <p className="font-medium line-clamp-1">{n.title}</p>
                     <p className="text-sm text-muted-foreground line-clamp-1">{n.content}</p>
-                    <p className="text-xs text-muted-foreground mt-0.5">{new Date(n.created_at).toLocaleDateString("ko-KR")}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                      <p className="text-xs text-muted-foreground">{new Date(n.created_at).toLocaleDateString("ko-KR")}</p>
+                      {(() => {
+                        const st = periodStatus(n);
+                        return st && <span className={`rounded px-1.5 py-0.5 text-xs font-medium ${st.className}`}>{st.label}</span>;
+                      })()}
+                    </div>
                   </div>
                   <div className="flex gap-1 shrink-0">
                     <Button variant="ghost" size="sm" onClick={() => openEdit(n)}><Pencil className="size-4" /></Button>
@@ -149,6 +173,17 @@ export default function AdminNoticesPage() {
             <div className="space-y-1.5">
               <label className="text-sm font-medium">내용</label>
               <textarea value={content} onChange={(e) => setContent(e.target.value)} placeholder="공지 내용" className="w-full min-h-32 rounded-md border bg-background px-3 py-2 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">게시 기간 (선택)</label>
+              <div className="flex items-center gap-2">
+                <Input type="date" value={startsOn} onChange={(e) => setStartsOn(e.target.value)} className="h-11 flex-1" aria-label="시작일" />
+                <span className="text-muted-foreground">~</span>
+                <Input type="date" value={endsOn} min={startsOn || undefined} onChange={(e) => setEndsOn(e.target.value)} className="h-11 flex-1" aria-label="종료일" />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                이 기간에만 주민 화면(공지 목록·팝업)에 보여요. 두 날짜 모두 포함이고, 비워 두면 제한 없이 계속 보여요.
+              </p>
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">이미지 (선택)</label>

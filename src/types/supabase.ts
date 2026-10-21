@@ -104,6 +104,8 @@ export type Database = {
           title: string
           content: string
           image_url: string | null
+          starts_on: string | null
+          ends_on: string | null
           is_published: boolean
           created_by: string | null
           created_at: string
@@ -114,6 +116,8 @@ export type Database = {
           title: string
           content?: string
           image_url?: string | null
+          starts_on?: string | null
+          ends_on?: string | null
           is_published?: boolean
           created_by?: string | null
           created_at?: string
@@ -124,6 +128,8 @@ export type Database = {
           title?: string
           content?: string
           image_url?: string | null
+          starts_on?: string | null
+          ends_on?: string | null
           is_published?: boolean
           created_by?: string | null
           created_at?: string

@@ -3,6 +3,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { getCurrentUser } from './auth'
+import { getKSTDateString } from '@/lib/date'
 import type { ActionResult } from '@/types'
 
 export interface Notice {
@@ -11,18 +12,42 @@ export interface Notice {
   content: string
   image_url: string | null
   is_published: boolean
+  /** 게시 시작일 (YYYY-MM-DD, 없으면 바로) */
+  starts_on: string | null
+  /** 게시 종료일 (YYYY-MM-DD, 이 날까지 보임, 없으면 계속) */
+  ends_on: string | null
   created_at: string
   updated_at: string
 }
 
-// 공지 목록 (발행된 것만, 최신순)
+const NOTICE_COLS = 'id, title, content, image_url, is_published, starts_on, ends_on, created_at, updated_at'
+
+// 오늘(한국 날짜)이 게시 기간 안인 공지만
+function inPeriod<T extends { or: (filter: string) => T }>(query: T): T {
+  const today = getKSTDateString()
+  return query.or(`starts_on.is.null,starts_on.lte.${today}`).or(`ends_on.is.null,ends_on.gte.${today}`)
+}
+
+// 폼의 게시 기간 읽기 (빈 칸이면 null)
+function readPeriod(formData: FormData): { starts_on: string | null; ends_on: string | null; error?: string } {
+  const date = (key: string) => {
+    const v = String(formData.get(key) ?? '').trim()
+    return /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : null
+  }
+  const starts_on = date('starts_on')
+  const ends_on = date('ends_on')
+  if (starts_on && ends_on && ends_on < starts_on) {
+    return { starts_on, ends_on, error: '종료일이 시작일보다 빠릅니다.' }
+  }
+  return { starts_on, ends_on }
+}
+
+// 공지 목록 (발행됐고 오늘이 게시 기간 안인 것만, 최신순)
 export async function getNotices(): Promise<Notice[]> {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('notices')
-    .select('id, title, content, image_url, is_published, created_at, updated_at')
-    .eq('is_published', true)
-    .order('created_at', { ascending: false })
+  const { data } = await inPeriod(
+    supabase.from('notices').select(NOTICE_COLS).eq('is_published', true)
+  ).order('created_at', { ascending: false })
   return (data ?? []) as Notice[]
 }
 
@@ -32,7 +57,7 @@ export async function getAllNotices(): Promise<Notice[]> {
   if (!user || user.role !== 'admin') return []
   const { data } = await supabaseAdmin
     .from('notices')
-    .select('id, title, content, image_url, is_published, created_at, updated_at')
+    .select(NOTICE_COLS)
     .order('created_at', { ascending: false })
   return (data ?? []) as Notice[]
 }
@@ -41,7 +66,7 @@ export async function getNoticeById(id: string): Promise<Notice | null> {
   const supabase = await createClient()
   const { data } = await supabase
     .from('notices')
-    .select('id, title, content, image_url, is_published, created_at, updated_at')
+    .select(NOTICE_COLS)
     .eq('id', id)
     .maybeSingle()
   return (data as Notice | null) ?? null
@@ -55,11 +80,15 @@ export async function createNotice(formData: FormData): Promise<ActionResult> {
   const content = String(formData.get('content') ?? '').trim()
   const image_url = String(formData.get('image_url') ?? '').trim() || null
   if (!title) return { success: false, error: '제목을 입력해주세요.' }
+  const period = readPeriod(formData)
+  if (period.error) return { success: false, error: period.error }
 
   const { error } = await supabaseAdmin.from('notices').insert({
     title,
     content,
     image_url,
+    starts_on: period.starts_on,
+    ends_on: period.ends_on,
     created_by: user.id,
   })
   if (error) return { success: false, error: '공지 등록에 실패했습니다.' }
@@ -74,10 +103,12 @@ export async function updateNotice(id: string, formData: FormData): Promise<Acti
   const content = String(formData.get('content') ?? '').trim()
   const image_url = String(formData.get('image_url') ?? '').trim() || null
   if (!title) return { success: false, error: '제목을 입력해주세요.' }
+  const period = readPeriod(formData)
+  if (period.error) return { success: false, error: period.error }
 
   const { error } = await supabaseAdmin
     .from('notices')
-    .update({ title, content, image_url })
+    .update({ title, content, image_url, starts_on: period.starts_on, ends_on: period.ends_on })
     .eq('id', id)
   if (error) return { success: false, error: '공지 수정에 실패했습니다.' }
   return { success: true }
@@ -105,10 +136,9 @@ export async function getUnreadNoticeCount(): Promise<number> {
 
   const readAt = (profile as { notices_read_at: string | null } | null)?.notices_read_at
 
-  let query = supabase
-    .from('notices')
-    .select('id', { count: 'exact', head: true })
-    .eq('is_published', true)
+  let query = inPeriod(
+    supabase.from('notices').select('id', { count: 'exact', head: true }).eq('is_published', true)
+  )
   if (readAt) query = query.gt('created_at', readAt)
 
   const { count } = await query
