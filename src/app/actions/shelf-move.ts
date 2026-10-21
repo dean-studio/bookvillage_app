@@ -163,3 +163,23 @@ export async function getUnscannedBooks(): Promise<UnscannedGroup[]> {
     .map(([group, books]) => ({ group, books: books.sort((a, b) => a.title.localeCompare(b.title, 'ko', { numeric: true })) }))
     .sort((a, b) => a.group.localeCompare(b.group, 'ko', { numeric: true }))
 }
+
+export type ShelfBook = { id: string; title: string; barcode: string; cover_image: string | null }
+
+// 지금 이 책장에 있는 책 (이동 완료된 책) — 가나다순
+export async function getShelfBooks(shelf: string): Promise<ShelfBook[]> {
+  if (!(await requireAdmin()) || !shelf) return []
+  const books: ShelfBook[] = []
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabaseAdmin
+      .from('books')
+      .select('id, title, barcode, cover_image')
+      .eq('location_group', shelf)
+      .eq('is_deleted', false)
+      .order('id')
+      .range(from, from + 999)
+    books.push(...(data ?? []))
+    if (!data || data.length < 1000) break
+  }
+  return books.sort((a, b) => a.title.localeCompare(b.title, 'ko', { numeric: true }))
+}

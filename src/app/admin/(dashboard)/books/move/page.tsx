@@ -10,12 +10,14 @@ import { CameraScan } from "@/components/camera-scan";
 import { ScanNoticeBanner } from "@/components/scan-notice";
 import {
   getMoveShelves,
+  getShelfBooks,
   getUnscannedBooks,
   moveBookToShelf,
   moveBooksToShelf,
   undoBookMove,
   type MoveResult,
   type MovedBook,
+  type ShelfBook,
   type UnscannedGroup,
 } from "@/app/actions/shelf-move";
 import { useScannerInput } from "@/hooks/use-scanner-input";
@@ -82,17 +84,32 @@ export default function ShelfMovePage() {
   }, [shelf]);
 
   const [unscanned, setUnscanned] = useState<UnscannedGroup[] | null>(null);
+  // 고른 책장에 지금 있는 책 (이동 완료)
+  const [shelfBooks, setShelfBooks] = useState<{ shelf: string; books: ShelfBook[] } | null>(null);
+  const [shelfQuery, setShelfQuery] = useState("");
+  const loadShelfBooks = (name: string | null) => {
+    if (name) getShelfBooks(name).then((books) => shelfRef.current === name && setShelfBooks({ shelf: name, books }));
+  };
   const refreshCounts = () => {
     getMoveShelves().then(setShelves);
     getUnscannedBooks().then(setUnscanned);
+    loadShelfBooks(shelfRef.current);
   };
 
   useEffect(refreshCounts, []);
 
-  // 책장을 고르면 바로 바코드 입력칸에 커서
+  // 책장을 고르면 그 책장 책 목록을 불러오고, 바로 바코드 입력칸에 커서
   useEffect(() => {
-    if (shelf) setTimeout(() => inputRef.current?.focus(), 50);
+    if (!shelf) return;
+    loadShelfBooks(shelf);
+    setTimeout(() => inputRef.current?.focus(), 50);
   }, [shelf]);
+
+  const currentShelfBooks = shelfBooks && shelfBooks.shelf === shelf ? shelfBooks.books : null;
+  const q = shelfQuery.trim().toLowerCase();
+  const filteredShelfBooks = currentShelfBooks?.filter(
+    (b) => !q || b.title.toLowerCase().includes(q) || b.barcode.toLowerCase().includes(q)
+  );
 
   // 찍으면 책 정보만 확인해서 대기 목록에 담음 (옮기기는 [옮기기] 버튼으로)
   async function preview(code: string): Promise<PreviewResult<MoveResult>> {
@@ -178,7 +195,7 @@ export default function ShelfMovePage() {
                     {sec.items.map((s) => (
                       <button
                         key={s.name}
-                        onClick={() => { setShelf(s.name); setCameraOn(false); }}
+                        onClick={() => { setShelf(s.name); setCameraOn(false); setShelfQuery(""); }}
                         className={`text-left rounded-lg border-2 px-3 py-2 transition-colors ${
                           shelf === s.name ? "border-primary bg-primary/10" : "border-border hover:border-primary/40"
                         }`}
@@ -292,6 +309,45 @@ export default function ShelfMovePage() {
                   )}
                 </div>
               </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 고른 책장에 지금 있는 책 (이동 완료) */}
+      {shelf && (
+        <Card>
+          <CardHeader className="space-y-2">
+            <CardTitle className="flex flex-wrap items-center gap-2 text-base">
+              {shelf}에 있는 책
+              {currentShelfBooks && <Badge variant="secondary">{currentShelfBooks.length}권</Badge>}
+            </CardTitle>
+            {currentShelfBooks && currentShelfBooks.length > 0 && (
+              <Input
+                value={shelfQuery}
+                onChange={(e) => setShelfQuery(e.target.value)}
+                placeholder="제목·바코드 찾기"
+                className="max-w-xs"
+              />
+            )}
+          </CardHeader>
+          <CardContent>
+            {!filteredShelfBooks ? (
+              <div className="flex justify-center py-6"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>
+            ) : filteredShelfBooks.length === 0 ? (
+              <p className="py-4 text-center text-sm text-muted-foreground">
+                {q ? "찾는 책이 없어요." : "아직 이 책장으로 옮긴 책이 없어요."}
+              </p>
+            ) : (
+              <ul className="max-h-[60vh] divide-y overflow-y-auto rounded-lg border text-sm">
+                {filteredShelfBooks.map((b) => (
+                  <li key={b.id} className="flex items-center gap-3 px-3 py-2">
+                    <Cover src={b.cover_image} />
+                    <span className="min-w-0 flex-1 line-clamp-2">{b.title}</span>
+                    <span className="shrink-0 font-mono text-muted-foreground">{b.barcode}</span>
+                  </li>
+                ))}
+              </ul>
             )}
           </CardContent>
         </Card>
