@@ -31,7 +31,7 @@ let historyKey = 0;
 // 책장 선택 화면 묶음 (이름 앞부분으로 구분). 묶음 안에서는 배치도 순서 그대로
 // (getMoveShelves가 위→아래, 왼쪽→오른쪽 순서로 줌: 위쪽 벽은 왼쪽부터, 옆 벽은 위에서부터)
 const SHELF_SECTIONS: { title: string; prefixes: string[] }[] = [
-  { title: "초등", prefixes: ["역사지식", "초등", "신착추천"] },
+  { title: "초등", prefixes: ["역사지식", "초등", "기타"] }, // 기타: 초등1-2 옆 작은 칸 (예전 신착추천)
   { title: "청소년 · 일반", prefixes: ["청소년", "소설", "에세이", "자기계발", "취미기타"] },
   { title: "유아", prefixes: ["유아", "신간도서"] }, // 신간도서: 유아 벽 (전집과 그림책 사이)
   { title: "영어", prefixes: ["영어"] },
