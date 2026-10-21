@@ -2,7 +2,6 @@
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { hangulToLatinKeys } from '@/lib/utils'
-import { SHELF_PLAN, UNPLACED, assignShelves, type PlanBook } from '@/lib/shelf-plan'
 import { getCurrentUser } from './auth'
 import type { ActionResult } from '@/types'
 
@@ -11,26 +10,7 @@ async function requireAdmin() {
   return !!user && user.role === 'admin' && user.admin_status === 'approved'
 }
 
-// 재배치안 자리 계산은 전체 도서가 필요해서 잠깐 캐시 (분류가 바뀌지 않는 한 결과가 같음)
-let planCache: { at: number; map: Map<string, string> } | null = null
-async function planTargets() {
-  if (planCache && Date.now() - planCache.at < 120_000) return planCache.map
-  const rows: PlanBook[] = []
-  for (let from = 0; ; from += 1000) {
-    const { data } = await supabaseAdmin
-      .from('books')
-      .select('id, title, location_group, age_group, sub_category, series_name, classification_source')
-      .eq('is_deleted', false)
-      .order('id')
-      .range(from, from + 999)
-    rows.push(...(data ?? []))
-    if (!data || data.length < 1000) break
-  }
-  planCache = { at: Date.now(), map: assignShelves(rows) }
-  return planCache.map
-}
-
-// 이동할 책장 목록 (배치도 순서) + 재배치안 새 이름
+// 이동할 책장 목록 (배치도 순서)
 export async function getMoveShelves() {
   if (!(await requireAdmin())) return []
   const { data: shelves } = await supabaseAdmin
@@ -52,10 +32,7 @@ export async function getMoveShelves() {
     if (!data || data.length < 1000) break
   }
 
-  return (shelves ?? []).map((s) => {
-    const plan = SHELF_PLAN.find((p) => p.name === s.name)
-    return { name: s.name, count: counts[s.name] ?? 0, planName: plan?.newName ?? null, planLabel: plan?.label ?? null }
-  })
+  return (shelves ?? []).map((s) => ({ name: s.name, count: counts[s.name] ?? 0, x: s.position_x, y: s.position_y }))
 }
 
 export type MoveResult = {
@@ -64,8 +41,6 @@ export type MoveResult = {
   book: { id: string; title: string; cover_image: string | null; barcode: string }
   from: string
   to: string
-  /** 재배치안상 이 책의 자리 (선택한 책장과 다르면 경고용) */
-  planTarget: string | null
 }
 
 // 바코드로 책을 찾아 선택한 책장으로 이동. previewOnly면 옮기지 않고 정보만 (카메라 확인용)
@@ -90,13 +65,10 @@ export async function moveBookToShelf(
 
   if (!book) return { success: false, error: `등록되지 않은 바코드예요: ${barcode}` }
 
-  const targets = await planTargets()
-  const planTarget = targets.get(book.id) ?? null
   const result = {
     book: { id: book.id, title: book.title, cover_image: book.cover_image, barcode: book.barcode },
     from: book.location_group,
     to: shelf,
-    planTarget: planTarget && planTarget !== UNPLACED ? planTarget : null,
   }
 
   if (book.location_group === shelf) return { success: true, data: { status: 'already', ...result } }
@@ -113,4 +85,81 @@ export async function undoBookMove(bookId: string, previousShelf: string): Promi
   const { error } = await supabaseAdmin.from('books').update({ location_group: previousShelf }).eq('id', bookId)
   if (error) return { success: false, error: '되돌리기에 실패했습니다.' }
   return { success: true }
+}
+
+export type MovedBook = {
+  book: { id: string; title: string; cover_image: string | null; barcode: string }
+  from: string
+  to: string
+}
+
+// 대기 목록에 모아둔 책을 한 번에 선택한 책장으로 이동
+export async function moveBooksToShelf(bookIds: string[], shelf: string): Promise<ActionResult<MovedBook[]>> {
+  if (!(await requireAdmin())) return { success: false, error: '권한이 없습니다.' }
+  if (!shelf) return { success: false, error: '책장을 먼저 선택해주세요.' }
+  const ids = [...new Set(bookIds)].slice(0, 500)
+  if (ids.length === 0) return { success: false, error: '옮길 책이 없어요.' }
+
+  // id 목록은 요청 주소 길이 제한 때문에 나눠서 보냄
+  const books: { id: string; title: string; cover_image: string | null; barcode: string; location_group: string }[] = []
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data } = await supabaseAdmin
+      .from('books')
+      .select('id, title, cover_image, barcode, location_group')
+      .in('id', ids.slice(i, i + 150))
+      .eq('is_deleted', false)
+    books.push(...(data ?? []))
+  }
+  const targets = books.filter((b) => b.location_group !== shelf)
+  const moved: typeof targets = []
+  for (let i = 0; i < targets.length; i += 150) {
+    const chunk = targets.slice(i, i + 150)
+    const { error } = await supabaseAdmin
+      .from('books')
+      .update({ location_group: shelf })
+      .in('id', chunk.map((b) => b.id))
+    if (error) {
+      if (moved.length === 0) return { success: false, error: '이동에 실패했습니다.' }
+      break // 일부만 옮겨졌으면 옮겨진 것만 돌려줌 (되돌리기 가능)
+    }
+    moved.push(...chunk)
+  }
+
+  return {
+    success: true,
+    data: moved.map((b) => ({
+      book: { id: b.id, title: b.title, cover_image: b.cover_image, barcode: b.barcode },
+      from: b.location_group,
+      to: shelf,
+    })),
+  }
+}
+
+export type UnscannedGroup = { group: string; books: { id: string; title: string; barcode: string }[] }
+
+// 아직 안 찍은 책: 지금 배치도에 없는 책장 이름(예전 이름)에 남아 있는 책.
+// 책장 이름을 바꾼 뒤 책장마다 다시 찍으면, 끝까지 남는 책이 분실·다른 칸·폐기 확인 대상
+export async function getUnscannedBooks(): Promise<UnscannedGroup[]> {
+  if (!(await requireAdmin())) return []
+  const { data: shelves } = await supabaseAdmin.from('shelves').select('name').eq('type', 'shelf')
+  const names = new Set((shelves ?? []).map((s) => s.name))
+
+  const groups = new Map<string, UnscannedGroup['books']>()
+  for (let from = 0; ; from += 1000) {
+    const { data } = await supabaseAdmin
+      .from('books')
+      .select('id, title, barcode, location_group')
+      .eq('is_deleted', false)
+      .order('id')
+      .range(from, from + 999)
+    for (const b of data ?? []) {
+      if (names.has(b.location_group)) continue
+      groups.set(b.location_group, [...(groups.get(b.location_group) ?? []), { id: b.id, title: b.title, barcode: b.barcode }])
+    }
+    if (!data || data.length < 1000) break
+  }
+
+  return [...groups.entries()]
+    .map(([group, books]) => ({ group, books: books.sort((a, b) => a.title.localeCompare(b.title, 'ko', { numeric: true })) }))
+    .sort((a, b) => a.group.localeCompare(b.group, 'ko', { numeric: true }))
 }

@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt, UserRound, QrCode, Tags, ArrowRightLeft, FolderOpen } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt, UserRound, QrCode, Tags, ArrowRightLeft, FolderOpen, Archive } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
@@ -24,6 +24,7 @@ const navItems: NavItem[] = [
   { href: "/admin/rentals/period", label: "기간별 대여", icon: CalendarRange },
   { href: "/admin/books/new", label: "도서 등록", icon: BookPlus },
   { href: "/admin/books/move", label: "책장 이동", icon: ArrowRightLeft },
+  { href: "/admin/books/disposal", label: "폐기 도서", icon: Archive },
   { type: "divider" },
   { href: "/admin/checkout", label: "대출", icon: BookCheck },
   { href: "/admin/guest-checkout", label: "비회원 대출", icon: UserPlus },

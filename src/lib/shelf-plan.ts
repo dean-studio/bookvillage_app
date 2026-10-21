@@ -38,16 +38,16 @@ export const SHELF_PLAN: PlanShelf[] = [
   { name: "초등도서I", newName: "초등3-4", label: "초등 3~4학년", zone: "elemlo", capacity: KID_NARROW },
   { name: "초등도서J", newName: "초등1-2", label: "초등 1~2학년", zone: "elemlo", capacity: KID_WIDE },
   { name: "초등도서K", newName: "신착추천", label: "신착·추천 (표지 보이게 직접 진열)", zone: "spare", capacity: KID_NARROW },
-  // 오른쪽 벽: 유아 전집 → 4~7세 단행본 (유아책상 옆). 용량은 사진 기준 (유아E가 가장 넓음, B·D·H는 좁은 칸)
+  // 오른쪽 벽: 유아 전집 3칸 → 4~7세 단행본 (유아책상 옆). 그림책 4칸 사이에 놀이학습·교양. 용량은 사진 기준 (유아E가 가장 넓음, B·D·H는 좁은 칸)
   { name: "유아A", newName: "유아전집A", label: "유아 전집", zone: "set", capacity: 320 },
   { name: "유아B", newName: "유아전집B", label: "유아 전집", zone: "set", capacity: 130 },
   { name: "유아C", newName: "유아전집C", label: "유아 전집", zone: "set", capacity: 330 },
-  { name: "유아D", newName: "유아전집D", label: "유아 전집", zone: "set", capacity: 160 },
-  { name: "유아E", newName: "유아전집E", label: "유아 전집", zone: "set", capacity: 360 },
+  { name: "유아D", newName: "유아그림책A", label: "4~7세 그림책", zone: "kid", capacity: 160 },
+  { name: "유아E", newName: "유아그림책B", label: "4~7세 그림책", zone: "kid", capacity: 360 },
   { name: "유아F", newName: "유아놀이학습", label: "4~7세 놀이·학습", zone: "kid", capacity: 220 },
-  { name: "유아G", newName: "유아그림책A", label: "4~7세 그림책", zone: "kid", capacity: 360 },
+  { name: "유아G", newName: "유아그림책C", label: "4~7세 그림책", zone: "kid", capacity: 360 },
   { name: "유아H", newName: "유아교양", label: "4~7세 교양 · 부모 코너", zone: "kid", capacity: 150 },
-  { name: "유아I", newName: "유아그림책B", label: "4~7세 그림책", zone: "kid", capacity: 320 },
+  { name: "유아I", newName: "유아그림책D", label: "4~7세 그림책", zone: "kid", capacity: 320 },
   // 유아책상 앞 (사진 없음 — 용량 추정)
   { name: "영어원문", newName: "영어원서", label: "영어원서", zone: "eng", capacity: KID_WIDE },
   { name: "유아J", newName: "유아0-3", label: "0~3세 + 확인 필요 낱권", zone: "baby", capacity: 400 },
@@ -58,7 +58,7 @@ export const UNPLACED = "미분류";
 // 차곡차곡 채울 때도 반납·신착 자리로 10%는 남김
 const PACK_FILL = 0.9;
 const cap = (name: string): [string, number] => [name, SHELF_PLAN.find((p) => p.name === name)!.capacity];
-const SET_SHELVES = ["유아A", "유아B", "유아C", "유아D", "유아E"].map(cap);
+const SET_SHELVES = ["유아A", "유아B", "유아C"].map(cap);
 const SERIES_SHELVES = ["초등도서D", "초등도서E", "초등도서F", "초등도서G"].map(cap);
 
 export type PlanBook = {
@@ -172,6 +172,6 @@ export function assignShelves(books: PlanBook[]): Map<string, string> {
   // 단행본: 세계사B → 초등A → 초등B → 초등C 4칸에 가나다순, 칸 용량 비율대로
   splitEven(pools.elemSingle, ["세계사B", "초등도서A", "초등도서B", "초등도서C"], out);
   splitBySeries(pools.sets, SET_SHELVES, out);
-  splitEven(pools.picture, ["유아G", "유아I"], out);
+  splitEven(pools.picture, ["유아D", "유아E", "유아G", "유아I"], out);
   return out;
 }

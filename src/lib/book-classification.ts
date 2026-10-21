@@ -90,11 +90,27 @@ export const SHELF_HOME: Record<string, readonly string[]> = {
   세계사: ["elem_1_2", "elem_3_4", "elem_5_6", "elem_all"],
   일반: ["adult"],
   영어원문: ["english"],
+  // 2026-10 재배치 후 이름
+  청소년: ["teen"],
+  에세이: ["adult"],
+  취미기타: ["adult"],
+  소설: ["adult"],
+  자기계발: ["adult"],
+  역사지식: ["elem_1_2", "elem_3_4", "elem_5_6", "elem_all"],
+  초등단행본: ["elem_1_2", "elem_3_4", "elem_5_6", "elem_all"],
+  초등시리즈: ["elem_1_2", "elem_3_4", "elem_5_6", "elem_all"],
+  초등전집: ["elem_1_2", "elem_3_4", "elem_5_6", "elem_all"],
+  초등: ["elem_1_2", "elem_3_4", "elem_5_6", "elem_all"], // 초등5-6, 초등3-4, 초등1-2
+  유아전집: ["infant_set"],
+  유아놀이학습: ["age_0_3", "age_4_7"],
+  유아그림책: ["age_0_3", "age_4_7"],
+  유아교양: ["age_0_3", "age_4_7", "adult"], // 부모 코너(육아) 포함
+  영어원서: ["english"],
 };
 
-// "유아C" → "유아", "초등도서H" → "초등도서"
+// "유아C" → "유아", "초등도서H" → "초등도서", "초등5-6" → "초등", "유아0-3" → "유아"
 export function shelfBase(locationGroup: string): string {
-  return locationGroup.replace(/[A-Z0-9]+$/, "");
+  return locationGroup.replace(/(\d+-\d+|[A-Z0-9]+)$/, "");
 }
 
 // 분류가 현재 서가와 맞지 않아 옮겨야 하는지 (미분류·알 수 없는 서가는 판단하지 않음)
