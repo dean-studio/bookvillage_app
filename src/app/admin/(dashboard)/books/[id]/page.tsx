@@ -35,9 +35,12 @@ import {
   Pencil,
   Camera,
   X,
+  Trash2,
+  AlertCircle,
 } from "lucide-react";
-import { getBookById, setBookFeatured, unsetBookFeatured, updateBook } from "@/app/actions/books";
+import { getBookById, setBookFeatured, unsetBookFeatured, updateBook, deleteBook } from "@/app/actions/books";
 import { getBookRentals } from "@/app/actions/rentals";
+import { getPublicSettings } from "@/app/actions/settings";
 import { getShelves } from "@/app/actions/shelves";
 import { uploadBookCoverImage } from "@/lib/storage";
 import type { Book } from "@/types";
@@ -64,6 +67,12 @@ export default function AdminBookDetailPage() {
   const [isSaving, startSave] = useTransition();
   const editFileRef = useRef<HTMLInputElement>(null);
 
+  // 삭제 다이얼로그 (유치원 모드: 대출 중인 책도 분실로 처리해 삭제)
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, startDelete] = useTransition();
+  const [kindergarten, setKindergarten] = useState(false);
+
   function loadBook() {
     startTransition(async () => {
       const [bookData, rentalData] = await Promise.all([
@@ -80,6 +89,7 @@ export default function AdminBookDetailPage() {
     getShelves().then((data) => {
       setShelfNames((data as { name: string; type: string }[]).filter((s) => s.type !== "label").map((s) => s.name));
     });
+    getPublicSettings().then((s) => setKindergarten(s.site_type === "kindergarten"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
@@ -131,6 +141,16 @@ export default function AdminBookDetailPage() {
     });
   }
 
+  function handleDelete(lost = false) {
+    setDeleteError("");
+    startDelete(async () => {
+      const result = await deleteBook(bookId, { lost });
+      if (!result.success) { setDeleteError(result.error || "삭제에 실패했습니다."); return; }
+      setDeleteOpen(false);
+      router.replace("/admin/books");
+    });
+  }
+
   if (isLoading && !book) {
     return (
       <div className="flex justify-center py-12">
@@ -164,10 +184,21 @@ export default function AdminBookDetailPage() {
         <CardHeader>
           <div className="flex items-center justify-between">
             <CardTitle className="text-lg">도서 정보</CardTitle>
-            <Button variant="outline" size="sm" onClick={openEdit}>
-              <Pencil className="size-4 mr-1" />
-              정보 수정
-            </Button>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={openEdit}>
+                <Pencil className="size-4 mr-1" />
+                정보 수정
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-destructive hover:text-destructive"
+                onClick={() => { setDeleteError(""); setDeleteOpen(true); }}
+              >
+                <Trash2 className="size-4 mr-1" />
+                삭제
+              </Button>
+            </div>
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -380,6 +411,55 @@ export default function AdminBookDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 도서 삭제 다이얼로그 */}
+      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-xl">도서 삭제</DialogTitle>
+          </DialogHeader>
+          {(() => {
+            const rented = rentals.some((r) => !r.returned_at);
+            const cancel = (
+              <Button variant="outline" className="flex-1 h-12" onClick={() => setDeleteOpen(false)} disabled={isDeleting}>
+                {rented && !kindergarten ? "닫기" : "취소"}
+              </Button>
+            );
+            return (
+              <div className="space-y-4 mt-2">
+                {rented ? (
+                  <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                    <AlertCircle className="size-5 text-destructive shrink-0 mt-0.5" />
+                    <p className="text-base text-destructive">
+                      {kindergarten ? (
+                        <>
+                          &quot;{book.title}&quot;은(는) 지금 대출 중이에요.
+                          <br />
+                          잃어버린 책이면 반납하지 않고 분실로 처리해 삭제할 수 있어요.
+                        </>
+                      ) : (
+                        "현재 대출 중인 도서는 삭제할 수 없습니다."
+                      )}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-lg text-muted-foreground">&quot;{book.title}&quot;을(를) 정말 삭제하시겠습니까?</p>
+                )}
+                {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
+                <div className="flex gap-3">
+                  {cancel}
+                  {(!rented || kindergarten) && (
+                    <Button variant="destructive" className="flex-1 h-12" onClick={() => handleDelete(rented)} disabled={isDeleting}>
+                      {isDeleting ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Trash2 className="size-4 mr-1" />}
+                      {rented ? "분실 처리 후 삭제" : "삭제"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       {/* 도서 정보 수정 다이얼로그 */}
       <input ref={editFileRef} type="file" accept="image/*" className="hidden" onChange={handleEditUpload} />
