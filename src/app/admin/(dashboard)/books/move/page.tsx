@@ -33,7 +33,7 @@ let historyKey = 0;
 const SHELF_SECTIONS: { title: string; prefixes: string[] }[] = [
   { title: "초등", prefixes: ["역사지식", "초등", "신착추천"] },
   { title: "청소년 · 일반", prefixes: ["청소년", "소설", "에세이", "자기계발", "취미기타"] },
-  { title: "유아", prefixes: ["유아"] },
+  { title: "유아", prefixes: ["유아", "신간도서"] }, // 신간도서: 유아 벽 (전집과 그림책 사이)
   { title: "영어", prefixes: ["영어"] },
 ];
 
