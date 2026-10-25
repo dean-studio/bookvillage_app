@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>수기 대여 노트 (인쇄용)</title>
+<style>
+  @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.css');
+
+  :root {
+    --ink: #1c1917;
+    --muted: #6b6560;
+    --line: #cfc8bd;        /* 괘선 (연하게) */
+    --line-soft: #e6e1d8;   /* 보조 괘선 */
+    --amber: #e3a008;
+    --amber-text: #9a6400;
+    --amber-tint: #fdf6e3;
+    --staff-tint: #faf6ee;  /* 담당자 칸 바탕 (아주 옅게) */
+    --maroon: #8c1c1c;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    font-family: 'Pretendard', -apple-system, 'Apple SD Gothic Neo', sans-serif;
+    color: var(--ink); background: #e9e6e1; line-height: 1.35;
+    word-break: keep-all; font-feature-settings: 'tnum';
+  }
+
+  /* A4 가로 */
+  .page {
+    width: 297mm; height: 210mm; background: #fff;
+    margin: 12px auto; padding: 0 12mm 7mm;
+    display: flex; flex-direction: column; position: relative; overflow: hidden;
+  }
+  .page::before {
+    content: ""; display: block; height: 2.5mm; margin: 0 -12mm 4mm; background: var(--amber);
+  }
+
+  /* ───── 머리 ───── */
+  .header { display: flex; align-items: center; gap: 12px; height: 15mm; }
+  .header .logo { width: 15mm; height: 15mm; object-fit: contain; flex-shrink: 0; }
+  .header h1 { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; line-height: 1.1; }
+
+  .remind {
+    margin-left: auto; display: flex; align-items: center; gap: 0;
+    border: 1.5px solid var(--ink); height: 11mm;
+  }
+  .remind .item {
+    display: flex; align-items: center; gap: 7px; padding: 0 14px; height: 100%;
+    font-size: 14.5px; font-weight: 800;
+  }
+  .remind .item + .item { border-left: 1.5px solid var(--ink); }
+  .remind .item .n {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--ink); color: #fff;
+    font-size: 12px; font-weight: 800; display: inline-flex; align-items: center; justify-content: center;
+  }
+  .remind .item em { font-style: normal; color: var(--amber-text); }
+
+  .pageno { margin-left: 10px; font-size: 13px; color: var(--muted); font-weight: 600; white-space: nowrap; }
+  .pageno span { display: inline-block; width: 16mm; border-bottom: 1.5px solid var(--ink); margin: 0 4px; }
+
+  /* ───── 표 ───── */
+  table.ledger { width: 100%; border-collapse: collapse; table-layout: fixed; margin-top: 3mm; }
+  table.ledger th, table.ledger td { border: 1px solid var(--line); }
+  table.ledger th {
+    height: 13mm; vertical-align: middle; text-align: center;
+    background: var(--amber-tint); padding: 0 4px;
+  }
+  table.ledger th .lab { display: inline-flex; align-items: center; gap: 6px; font-size: 16px; font-weight: 800; }
+  table.ledger th .lab i {
+    font-style: normal; width: 19px; height: 19px; border-radius: 50%; flex-shrink: 0;
+    background: var(--amber); color: #fff; font-size: 11.5px; font-weight: 800;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  table.ledger th .hint { display: block; font-size: 11px; color: var(--muted); font-weight: 500; margin-top: 2px; }
+
+  table.ledger td { height: 13.2mm; }
+  table.ledger tr.row:nth-child(even) td { border-bottom-color: var(--line); }
+
+  /* 날짜 칸: " / " 미리 인쇄 */
+  td.date { text-align: center; color: #b9b2a6; font-size: 20px; font-weight: 300; letter-spacing: 0.6em; }
+  td.date::before { content: "/"; }
+
+  /* 담당자 영역: 굵은 세로 괘선 + 옅은 바탕 */
+  .staff-start { border-left: 2.5px solid var(--ink) !important; }
+  table.ledger th.staff { background: #f3efe6; }
+  table.ledger td.staff { background: var(--staff-tint); }
+  th.staff .lab { font-size: 12px; line-height: 1.25; }
+  table.ledger th.staff-head { height: 7mm; background: #ece7dc; font-size: 10.5px; font-weight: 800; letter-spacing: 0; color: var(--ink); padding: 0; }
+  table.ledger th.resident-head { height: 7mm; background: #fff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.08em; color: var(--muted); border-bottom: 1px solid var(--line); }
+
+  td.check { text-align: center; }
+  td.check::before {
+    content: ""; display: inline-block; width: 5.5mm; height: 5.5mm;
+    border: 1.5px solid var(--ink); border-radius: 2px; vertical-align: middle;
+  }
+
+  /* ───── 인쇄 ───── */
+  @page { size: A4 landscape; margin: 0; }
+  @media print {
+    body { background: #fff; }
+    .page { margin: 0; }
+    .no-print { display: none !important; }
+  }
+  .toolbar {
+    position: fixed; top: 12px; right: 12px; z-index: 9;
+    background: var(--ink); color: #fff; border: none;
+    padding: 12px 18px; border-radius: 8px; font-size: 15px; font-weight: 700;
+    cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,.2); font-family: inherit;
+  }
+</style>
+</head>
+<body>
+
+<button class="toolbar no-print" onclick="window.print()">인쇄하기</button>
+
+<div class="page">
+
+  <div class="header">
+    <img class="logo" src="/logo.png" alt="중앙힐스테이트 2차 자람도서관" />
+    <div>
+      <h1>수기 대여 노트</h1>
+    </div>
+    <div class="remind" aria-label="작성 규칙">
+      <div class="item"><span class="n">1</span>한 줄에 <em>한 권</em></div>
+      <div class="item"><span class="n">2</span>글씨는 <em>또박또박</em></div>
+      <div class="item"><span class="n">3</span>1인 <em>10권</em>까지</div>
+    </div>
+    <div class="pageno">쪽<span></span></div>
+  </div>
+
+  <table class="ledger">
+    <colgroup>
+      <col style="width:22mm">  <!-- 대여일 -->
+      <col style="width:36mm">  <!-- 동·호수 -->
+      <col style="width:28mm">  <!-- 이름 -->
+      <col style="width:40mm">  <!-- 연락처 -->
+      <col>                     <!-- 책 제목 (나머지 ≈ 134mm) -->
+      <col style="width:13mm">  <!-- 전산 입력 -->
+    </colgroup>
+    <thead>
+      <tr>
+        <th class="resident-head" colspan="5">대여하시는 분이 적는 칸</th>
+        <th class="staff-head staff-start">담당자</th>
+      </tr>
+      <tr>
+        <th><span class="lab">대여일</span><span class="hint">월 / 일</span></th>
+        <th><span class="lab"><i>1</i>동 · 호수</span><span class="hint">예) 101동 1203호</span></th>
+        <th><span class="lab"><i>2</i>이름</span><span class="hint">빌리는 분</span></th>
+        <th><span class="lab"><i>3</i>연락처</span><span class="hint">휴대폰 번호</span></th>
+        <th><span class="lab"><i>4</i>책 제목</span><span class="hint">한 줄에 한 권만</span></th>
+        <th class="staff staff-start"><span class="lab">전산<br>입력</span></th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- 12줄 -->
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+      <tr class="row"><td class="date"></td><td></td><td></td><td></td><td></td><td class="check staff staff-start"></td></tr>
+    </tbody>
+  </table>
+
+
+</div>
+
+</body>
+</html>
