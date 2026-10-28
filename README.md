@@ -259,7 +259,7 @@ npm run docs:dev  # http://localhost:6200/bookvillage/
 
 ## 개발
 
-**딘스튜디오** | [dean.kr](https://dean.kr) | hckim@dean.kr
+**딘웍스** | [dean.kr](https://dean.kr) | hckim@dean.kr
 
 ## 라이선스
 
