@@ -3,7 +3,7 @@
 입력(작업 폴더 DIR 안):
   infant_all.jsonl, infant_single.out.jsonl   유아 서가 + 교보 조회
   elem_all.jsonl, elem_wp.jsonl, elem_lookup.out.jsonl   초등·고학년·세계사 서가 + 상식이 DB + 교보 조회
-  other_all.jsonl, other_aladin.out.jsonl     일반·영어원문 서가 + 알라딘 조회
+  other_all.jsonl                              일반·영어원문 서가
   kyobo-textbook-2026-10.json (이 스크립트 폴더)  교과연계 학년 목록
 출력: DIR/plan.json  [{id, title, shelf, age_group, sub_category, series_name, textbook_grades, source}]
 사용: python3 plan_all.py <DIR>
@@ -17,14 +17,6 @@ from plan_infant import classify_kyobo as classify_infant_codes
 SET_MIN = 5
 GRADE_CODES = {"4210": "elem_1_2", "4212": "elem_1_2", "4214": "elem_3_4", "4216": "elem_5_6"}
 GRADE_NAMES = {"초등1-2학년": "elem_1_2", "초등3-4학년": "elem_3_4", "초등5-6학년": "elem_5_6", "초등학교 입학준비": "elem_1_2"}
-
-ADULT_GENRES = [  # 알라딘 categoryName 2단계 → 일반 장르
-    ("소설/시/희곡", "novel"), ("에세이", "essay"), ("인문학", "humanities"), ("사회과학", "humanities"),
-    ("역사", "humanities"), ("예술/대중문화", "humanities"), ("과학", "science"), ("자기계발", "selfhelp"),
-    ("경제경영", "economy"), ("좋은부모", "parenting"), ("건강/취미", "hobby"),
-    ("요리/살림", "hobby"), ("여행", "hobby"), ("가정/요리/뷰티", "hobby"), ("취미/레저", "hobby"),
-    ("종교/역학", "religion"),
-]
 
 def load(path):
     return [json.loads(l) for l in open(path)] if os.path.exists(path) else []
@@ -77,24 +69,6 @@ def classify_elem_names(paths):
         return "age_0_3" if "0~3세" in nodes else "age_4_7"
     return None
 
-ALADIN_GRADES = {"초등1~2학년": "elem_1_2", "초등3~4학년": "elem_3_4", "초등5~6학년": "elem_5_6"}
-
-def adult_genre(category_name):
-    """알라딘 분류 → (연령, 장르). 책장 재배치용이라 서가보다 책 자체 분류 우선."""
-    parts = (category_name or "").split(">")
-    second = parts[1] if len(parts) > 1 else ""
-    if second == "청소년":
-        return "teen", None
-    if second == "어린이":
-        grades = [g for n, g in ALADIN_GRADES.items() if n in parts]
-        return (grades[0] if len(grades) == 1 else "elem_all"), None
-    if second == "유아":
-        return ("age_0_3" if "0~3세" in parts else "age_4_7"), None
-    for prefix, genre in ADULT_GENRES:
-        if second.startswith(prefix):
-            return "adult", genre
-    return "adult", "etc" if second else None
-
 def main(d):
     tb = textbook_index()
     plan, stat = [], collections.Counter()
@@ -138,18 +112,10 @@ def main(d):
                    series_name=elem_series.get(key(name)) if name else None)
         plan.append(rec)
 
-    # 3) 일반: 알라딘 장르 / 영어원문: 영어원서
-    other = load(os.path.join(d, "other_all.jsonl"))
-    aladin = {r["id"]: r for r in load(os.path.join(d, "other_aladin.out.jsonl"))}
-    for b in other:
+    # 3) 일반: 성인 / 영어원문: 영어원서 (근거: 서가)
+    for b in load(os.path.join(d, "other_all.jsonl")):
         rec = base(b, tb)
-        if b["shelf"] == "영어원문":
-            rec.update(age_group="english", source="shelf")
-        elif b["id"] in aladin and aladin[b["id"]].get("aladin_category"):
-            age, genre = adult_genre(aladin[b["id"]]["aladin_category"])
-            rec.update(age_group=age, sub_category=genre, source="aladin")
-        else:
-            rec.update(age_group="adult", source="shelf")
+        rec.update(age_group="english" if b["shelf"] == "영어원문" else "adult", source="shelf")
         plan.append(rec)
 
     json.dump(plan, open(os.path.join(d, "plan.json"), "w"), ensure_ascii=False, indent=1)
