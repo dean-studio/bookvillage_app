@@ -44,6 +44,7 @@ import { reissueMemberCard, updateCardMemberInfo } from "@/app/actions/member-ca
 import { isMemberCardCode } from "@/lib/member-card";
 import { QrCodeSvg } from "@/components/qr-code";
 import { getUserJellyHistory, adminGiveJelly, adminDeductJelly } from "@/app/actions/jelly";
+import { AcademyStudentCard } from "./academy-student-card";
 
 type ResidentData = NonNullable<Awaited<ReturnType<typeof getResidentDetail>>>;
 
@@ -336,6 +337,9 @@ export default function AdminResidentDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* 학원 정보 (학원 모드에서만 그려짐) */}
+      <AcademyStudentCard userId={userId} />
 
       {/* QR 회원카드 */}
       {isCardMember && (

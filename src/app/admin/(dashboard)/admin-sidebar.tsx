@@ -3,11 +3,12 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt, UserRound, QrCode, ArrowRightLeft, FolderOpen, Archive, Layers } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt, UserRound, QrCode, ArrowRightLeft, FolderOpen, Archive, Layers, School, FileSpreadsheet, GraduationCap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
 import { cn } from "@/lib/utils";
+import { isAcademy } from "@/lib/site-mode";
 
 type NavItem = { type?: "link"; href: string; label: string; icon: typeof LayoutDashboard; exact?: boolean } | { type: "divider" };
 
@@ -48,6 +49,13 @@ const navItems: NavItem[] = [
 // QR 회원카드 운영(유치원 등) 시 회원 목록 아래에 노출
 const qrCardItem: NavItem = { href: "/admin/residents/cards", label: "QR 카드 인쇄", icon: QrCode };
 
+// 학원 모드에서만: 회원 목록(·QR 카드 인쇄) 아래 반별 현황, 도서 등록 아래 일괄 등록·AR 정보 입력
+const academyClassItem: NavItem = { href: "/admin/academy/classes", label: "반별 현황", icon: School };
+const academyBookItems: NavItem[] = [
+  { href: "/admin/academy/import", label: "일괄 등록", icon: FileSpreadsheet },
+  { href: "/admin/academy/ar-missing", label: "AR 정보 입력", icon: GraduationCap },
+];
+
 // 서재 관리 페이지에서는 데스크톱에서도 사이드바를 접음
 const COLLAPSED_PATHS = ["/admin/books/new"];
 
@@ -55,13 +63,17 @@ export function AdminSidebar() {
   const [open, setOpen] = useState(false);
   const [adminName, setAdminName] = useState<string>("");
   const [qrMode, setQrMode] = useState(false);
+  const [academyMode, setAcademyMode] = useState(false);
   const pathname = usePathname();
 
   useEffect(() => {
     getCurrentUser().then((u) => {
       if (u?.name) setAdminName(u.name);
     });
-    getPublicSettings().then((s) => setQrMode(s.login_method === "qr"));
+    getPublicSettings().then((s) => {
+      setQrMode(s.login_method === "qr");
+      setAcademyMode(isAcademy(s.site_type));
+    });
   }, []);
 
   const forceCollapsed = COLLAPSED_PATHS.some(
@@ -73,9 +85,18 @@ export function AdminSidebar() {
     setOpen(false);
   }, [pathname]);
 
-  const items = qrMode
+  const baseItems = qrMode
     ? navItems.flatMap((item) => ("href" in item && item.href === "/admin/residents" ? [item, qrCardItem] : [item]))
     : navItems;
+  const classAnchor = qrMode ? "/admin/residents/cards" : "/admin/residents";
+  const items = academyMode
+    ? baseItems.flatMap((item) => {
+        if (!("href" in item)) return [item];
+        if (item.href === classAnchor) return [item, academyClassItem];
+        if (item.href === "/admin/books/new") return [item, ...academyBookItems];
+        return [item];
+      })
+    : baseItems;
 
   const navContent = (
     <>

@@ -9,6 +9,8 @@ import { ArrowLeft, Loader2, UserPlus, AlertCircle } from "lucide-react";
 import { getLibrarySettings } from "@/app/actions/settings";
 import { createCardMember } from "@/app/actions/member-cards";
 import { parseGroups } from "@/lib/member-card";
+import { isAcademy } from "@/lib/site-mode";
+import { createAcademyStudent } from "@/app/actions/academy";
 
 export default function NewCardMemberPage() {
   const router = useRouter();
@@ -18,6 +20,11 @@ export default function NewCardMemberPage() {
   const [contactPhone, setContactPhone] = useState("");
   const [memo, setMemo] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // 학원 모드에서만: 학년·ZPD (academy_members)
+  const [academy, setAcademy] = useState(false);
+  const [grade, setGrade] = useState("");
+  const [zpdLow, setZpdLow] = useState("");
+  const [zpdHigh, setZpdHigh] = useState("");
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -25,6 +32,7 @@ export default function NewCardMemberPage() {
       const list = parseGroups(s.member_groups);
       setGroups(list);
       if (list.length > 0) setGroup(list[0]);
+      setAcademy(isAcademy(s.site_type));
     });
   }, []);
 
@@ -36,6 +44,18 @@ export default function NewCardMemberPage() {
     }
     if (!name.trim()) {
       setError("이름을 입력해주세요.");
+      return;
+    }
+    if (academy) {
+      startTransition(async () => {
+        const result = await createAcademyStudent({ name, group, contact_phone: contactPhone, memo, grade, zpd_low: zpdLow, zpd_high: zpdHigh });
+        if (!result.success) {
+          setError(result.error ?? "회원 생성에 실패했습니다.");
+          return;
+        }
+        if (result.data?.warning) window.alert(result.data.warning);
+        router.push("/admin/residents");
+      });
       return;
     }
     startTransition(async () => {
@@ -105,6 +125,50 @@ export default function NewCardMemberPage() {
               onChange={(e) => setName(e.target.value)}
             />
           </div>
+
+          {academy && (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="space-y-2">
+                <label className="font-semibold">
+                  학년 <span className="text-sm font-normal text-muted-foreground">(선택)</span>
+                </label>
+                <Input
+                  className="h-14 text-lg"
+                  placeholder="예: 3 (미취학 0)"
+                  inputMode="numeric"
+                  value={grade}
+                  maxLength={2}
+                  onChange={(e) => setGrade(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="font-semibold">
+                  ZPD 하한 <span className="text-sm font-normal text-muted-foreground">(선택)</span>
+                </label>
+                <Input
+                  className="h-14 text-lg"
+                  placeholder="예: 2.5"
+                  inputMode="decimal"
+                  value={zpdLow}
+                  maxLength={4}
+                  onChange={(e) => setZpdLow(e.target.value)}
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="font-semibold">
+                  ZPD 상한 <span className="text-sm font-normal text-muted-foreground">(선택)</span>
+                </label>
+                <Input
+                  className="h-14 text-lg"
+                  placeholder="예: 3.8"
+                  inputMode="decimal"
+                  value={zpdHigh}
+                  maxLength={4}
+                  onChange={(e) => setZpdHigh(e.target.value)}
+                />
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <label className="font-semibold">

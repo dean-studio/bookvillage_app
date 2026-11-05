@@ -101,3 +101,42 @@ export const AR_INTEREST_LABELS: Record<string, string> = {
   "MG+": "MG+ (6학년 이상)",
   UG: "UG (9학년 이상)",
 };
+
+/**
+ * 입력 칸 값 미리 확인 (화면용). 서버는 lib/validations/books.ts 의 zod 스키마로 다시 확인한다.
+ * 빈 칸은 통과. 문제가 있으면 첫 번째 오류 문구, 없으면 null.
+ */
+export function validateArValues(v: Partial<ArValues>): string | null {
+  const s = (k: ArFieldKey) => (v[k] ?? "").trim().replace(/,/g, "");
+  const level = s("ar_level");
+  if (level !== "") {
+    const n = Number(level);
+    if (!Number.isFinite(n) || n < 0 || n > 13.9) return "AR 레벨은 0~13.9 사이로 입력하세요.";
+  }
+  const points = s("ar_points");
+  if (points !== "") {
+    const n = Number(points);
+    if (!Number.isFinite(n) || n < 0 || n > 9999.9) return "AR 포인트를 확인하세요.";
+  }
+  const quiz = s("ar_quiz_no");
+  if (quiz !== "") {
+    const n = Number(quiz);
+    if (!Number.isInteger(n) || n < 1 || n > 2147483647) return "AR 퀴즈 번호를 확인하세요.";
+  }
+  const interest = (v.ar_interest ?? "").trim().toUpperCase();
+  if (interest !== "" && !(AR_INTERESTS as readonly string[]).includes(interest)) {
+    return "Interest는 LG, MG, MG+, UG 중 하나입니다.";
+  }
+  const words = s("word_count");
+  if (words !== "") {
+    const n = Number(words);
+    if (!Number.isInteger(n) || n < 0 || n > 2147483647) return "단어 수를 확인하세요.";
+  }
+  if ((v.lexile ?? "").trim().length > 10) return "Lexile은 10자 이내로 입력하세요.";
+  return null;
+}
+
+/** 값이 하나라도 들어 있는지 */
+export function hasAnyArValue(v: Partial<ArValues>): boolean {
+  return AR_FIELD_KEYS.some((k) => (v[k] ?? "").trim() !== "");
+}
