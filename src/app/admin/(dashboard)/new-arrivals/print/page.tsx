@@ -437,8 +437,9 @@ function NewArrivalsPrint() {
 
             {/* 표지 그리드 (분류 구분 없이 순서대로, 색상으로만 구분) */}
             <div
-              className="newbook-grid flex flex-wrap justify-start"
-              style={{ columnGap: `${GAP_X}mm`, rowGap: "8mm" }}
+              // 폭 고정: 축소(zoom)하면 안쪽 폭이 넓어져 한 줄 권수가 늘어나므로, 고른 권수 그대로 줄어들게 한다
+              className="newbook-grid mx-auto flex flex-wrap justify-start"
+              style={{ width: `${CONTENT_W}mm`, columnGap: `${GAP_X}mm`, rowGap: "8mm" }}
             >
               {flatBooks.map(({ book: it, color }, idx) => (
                 <div
