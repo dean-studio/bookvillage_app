@@ -68,6 +68,7 @@ export default function SiteTypePage() {
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [presetApplied, setPresetApplied] = useState<"kindergarten" | "academy" | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   useEffect(() => {
     getLibrarySettings().then((s) => {
@@ -79,19 +80,29 @@ export default function SiteTypePage() {
   async function handleSelect(value: string) {
     if (value === siteType) return;
     setSaving(true);
+    const prev = siteType;
     setSiteType(value);
     setPresetApplied(null);
-    await updateLibrarySetting("site_type", value);
-    if (isKindergarten(value)) {
-      for (const [key, v] of Object.entries(KINDERGARTEN_PRESET)) {
-        await updateLibrarySetting(key, v);
+    setSaveError(null);
+    const res = await updateLibrarySetting("site_type", value);
+    if (!res.success) {
+      setSiteType(prev);
+      setSaveError("사이트 유형을 저장하지 못했습니다. 다시 시도해 주세요.");
+      setSaving(false);
+      return;
+    }
+    const preset = isKindergarten(value) ? KINDERGARTEN_PRESET : isAcademy(value) ? ACADEMY_PRESET : null;
+    if (preset) {
+      const failed: string[] = [];
+      for (const [key, v] of Object.entries(preset)) {
+        const r = await updateLibrarySetting(key, v);
+        if (!r.success) failed.push(key);
       }
-      setPresetApplied("kindergarten");
-    } else if (isAcademy(value)) {
-      for (const [key, v] of Object.entries(ACADEMY_PRESET)) {
-        await updateLibrarySetting(key, v);
+      if (failed.length > 0) {
+        setSaveError(`사이트 유형은 바꿨지만 함께 바꿀 설정 일부(${failed.join(", ")})를 저장하지 못했습니다. 다시 선택하거나 각 설정 화면에서 확인해 주세요.`);
+      } else {
+        setPresetApplied(isKindergarten(value) ? "kindergarten" : "academy");
       }
-      setPresetApplied("academy");
     }
     setSaving(false);
   }
@@ -147,6 +158,12 @@ export default function SiteTypePage() {
               </button>
             );
           })}
+        </div>
+      )}
+
+      {saveError && (
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">
+          {saveError}
         </div>
       )}
 
