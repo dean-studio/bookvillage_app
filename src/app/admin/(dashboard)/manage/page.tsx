@@ -52,6 +52,7 @@ import {
   ChevronRight,
   LayoutGrid,
   QrCode,
+  GraduationCap,
 } from "lucide-react";
 import { getBooks, getBookDeletions } from "@/app/actions/books";
 import { createQuiz } from "@/app/actions/quizzes";
@@ -70,6 +71,7 @@ const settingsMenu = [
   { href: "/admin/manage/og", icon: Globe, label: "OG 메타데이터", desc: "공유 시 표시 제목/설명/이미지" },
   { href: "/admin/manage/library", icon: Settings, label: "도서관 설정", desc: "대출 권수, 기간, 신작 기준" },
   { href: "/admin/manage/jelly", icon: Candy, label: "젤리 포인트 설정", desc: "활동별 젤리 지급량" },
+  { href: "/admin/manage/ar", icon: GraduationCap, label: "원서·AR 레벨", desc: "AR 레벨 정보 사용, 원서 ISBN 보충 조회" },
 ];
 
 export default function AdminManagePage() {

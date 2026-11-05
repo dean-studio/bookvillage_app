@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { getRecommendedBooks, logBookView } from "@/app/actions/recommendations";
 import type { Book } from "@/types";
+import { ArBadge } from "@/components/ar-fields";
 
 type RecommendedBook = { id: string; title: string; author: string; cover_image: string | null };
 
@@ -44,9 +45,11 @@ function getShelfDisplayName(name: string, type: string): string {
 interface BookDetailClientProps {
   book: BookDetail;
   shelves: unknown[];
+  /** 설정 ar_enabled === 'on' (AR 배지 표시). 없으면 꺼짐 */
+  arEnabled?: boolean;
 }
 
-export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClientProps) {
+export function BookDetailClient({ book, shelves: rawShelves, arEnabled = false }: BookDetailClientProps) {
   const router = useRouter();
   const shelves = rawShelves as Shelf[];
   const [mapOpen, setMapOpen] = useState(false);
@@ -206,6 +209,7 @@ export function BookDetailClient({ book, shelves: rawShelves }: BookDetailClient
               출판사: {book.publisher}
             </p>
           )}
+          {arEnabled && <ArBadge book={book} className="text-[clamp(0.85rem,1.9vw,1.15rem)]" />}
           {book.avg_rating !== null && (
             <p className="text-[clamp(1rem,2.2vw,1.4rem)]">
               {"★".repeat(Math.round(book.avg_rating))}{" "}

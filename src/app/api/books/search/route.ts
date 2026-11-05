@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { searchBookByISBN, searchBooksByTitle } from '@/lib/kakao'
+import { searchOpenLibraryByISBN } from '@/lib/openlibrary'
 
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
@@ -58,6 +59,32 @@ export async function GET(request: NextRequest) {
   try {
     const book = await searchBookByISBN(isbn)
     if (!book) {
+      // 원서 보충 조회: 설정 isbn_fallback === 'openlibrary' 일 때만. 꺼져 있거나 실패하면 기존 404 그대로
+      const { data: fallbackSetting } = await supabase
+        .from('library_settings')
+        .select('value')
+        .eq('key', 'isbn_fallback')
+        .maybeSingle()
+      if (fallbackSetting?.value === 'openlibrary') {
+        const ol = await searchOpenLibraryByISBN(isbn)
+        if (ol) {
+          return NextResponse.json({
+            title: ol.title,
+            author: ol.author,
+            publisher: ol.publisher,
+            cover_image: ol.cover_image,
+            isbn: ol.isbn,
+            description: '',
+            translators: '',
+            published_at: ol.published_at,
+            price: 0,
+            sale_price: 0,
+            category: '',
+            kakao_url: '',
+            sale_status: '',
+          })
+        }
+      }
       return NextResponse.json({ error: '도서 정보를 찾을 수 없습니다.' }, { status: 404 })
     }
 

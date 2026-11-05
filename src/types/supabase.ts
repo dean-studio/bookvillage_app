@@ -241,6 +241,12 @@ export type Database = {
           textbook_grades: number[]
           classification_source: string | null
           classified_at: string | null
+          ar_level: number | null
+          ar_points: number | null
+          ar_quiz_no: number | null
+          ar_interest: string | null
+          word_count: number | null
+          lexile: string | null
           created_at: string
           updated_at: string
         }
@@ -272,6 +278,12 @@ export type Database = {
           textbook_grades?: number[]
           classification_source?: string | null
           classified_at?: string | null
+          ar_level?: number | null
+          ar_points?: number | null
+          ar_quiz_no?: number | null
+          ar_interest?: string | null
+          word_count?: number | null
+          lexile?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -303,6 +315,12 @@ export type Database = {
           textbook_grades?: number[]
           classification_source?: string | null
           classified_at?: string | null
+          ar_level?: number | null
+          ar_points?: number | null
+          ar_quiz_no?: number | null
+          ar_interest?: string | null
+          word_count?: number | null
+          lexile?: string | null
           created_at?: string
           updated_at?: string
         }
@@ -796,6 +814,106 @@ export type Database = {
             columns: ["book_id"]
             isOneToOne: false
             referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      academy_members: {
+        Row: {
+          user_id: string
+          grade: number | null
+          zpd_low: number | null
+          zpd_high: number | null
+          status: string
+          updated_at: string | null
+        }
+        Insert: {
+          user_id: string
+          grade?: number | null
+          zpd_low?: number | null
+          zpd_high?: number | null
+          status?: string
+          updated_at?: string | null
+        }
+        Update: {
+          user_id?: string
+          grade?: number | null
+          zpd_low?: number | null
+          zpd_high?: number | null
+          status?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "academy_members_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: true
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ar_results: {
+        Row: {
+          id: string
+          user_id: string
+          book_id: string | null
+          rental_id: string | null
+          passed: boolean
+          points: number
+          words: number | null
+          recorded_by: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          book_id?: string | null
+          rental_id?: string | null
+          passed?: boolean
+          points?: number
+          words?: number | null
+          recorded_by?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          book_id?: string | null
+          rental_id?: string | null
+          passed?: boolean
+          points?: number
+          words?: number | null
+          recorded_by?: string | null
+          created_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ar_results_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ar_results_book_id_fkey"
+            columns: ["book_id"]
+            isOneToOne: false
+            referencedRelation: "books"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ar_results_rental_id_fkey"
+            columns: ["rental_id"]
+            isOneToOne: false
+            referencedRelation: "rentals"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ar_results_recorded_by_fkey"
+            columns: ["recorded_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]

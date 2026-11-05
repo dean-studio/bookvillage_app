@@ -24,6 +24,8 @@ import {
 import { getShelves } from "@/app/actions/shelves";
 import { createBook, checkBarcodeExists, deleteBook } from "@/app/actions/books";
 import { uploadBookCoverImage } from "@/lib/storage";
+import { ArFieldsEditor, useArEnabled } from "@/components/ar-fields";
+import { EMPTY_AR, appendArFields, type ArValues } from "@/lib/ar";
 
 type BookInfo = {
   title: string;
@@ -79,6 +81,9 @@ export function MobileRegister() {
   const scannerRef = useRef<unknown>(null);
 
   const [rentalDays, setRentalDays] = useState("");
+  // AR 칸: 설정 ar_enabled === 'on' 일 때만 보이고 서버로 보낸다
+  const arEnabled = useArEnabled();
+  const [arValues, setArValues] = useState<ArValues>(EMPTY_AR);
 
   // Hybrid barcode state
   const [duplicateDetected, setDuplicateDetected] = useState(false);
@@ -153,6 +158,7 @@ export function MobileRegister() {
     const mode = forceMode || registerMode;
     setSearching(true);
     setError("");
+    setArValues(EMPTY_AR);
     setDuplicateDetected(false);
     setDuplicateBookTitle("");
     setCustomBarcode("");
@@ -256,6 +262,7 @@ export function MobileRegister() {
     setScanning(true);
     setError("");
     setBookInfo(null);
+    setArValues(EMPTY_AR);
     setDuplicateDetected(false);
     setScanSearching(false);
     await initScanner();
@@ -462,6 +469,7 @@ export function MobileRegister() {
       formData.set("location_group", selectedShelf);
       formData.set("location_detail", locationDetail);
       if (rentalDays.trim()) formData.set("rental_days", rentalDays.trim());
+      if (arEnabled) appendArFields(formData, arValues);
 
       const result = await createBook(formData);
       if (result.success && result.data) {
@@ -527,6 +535,7 @@ export function MobileRegister() {
     setDuplicateBookTitle("");
     setCustomBarcode("");
     setRentalDays("");
+    setArValues(EMPTY_AR);
     setManualEntryMode(false);
   }
 
@@ -894,6 +903,10 @@ export function MobileRegister() {
               rows={3}
             />
           </div>
+
+          {arEnabled && (
+            <ArFieldsEditor value={arValues} onChange={setArValues} title={bookInfo.title} />
+          )}
 
           <hr className="my-1" />
 

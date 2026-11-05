@@ -11,13 +11,23 @@ import { Search, BookOpen, Loader2, ChevronLeft, ChevronRight } from "lucide-rea
 import { getBooks } from "@/app/actions/books";
 import { logSearch } from "@/app/actions/recommendations";
 import type { Book } from "@/types";
+import { ArBadge, useArEnabled } from "@/components/ar-fields";
+import { AR_INTERESTS, AR_LEVEL_RANGES } from "@/lib/ar";
+
+type SortValue = "recent" | "title_asc" | "title_desc" | "ar_asc" | "ar_desc";
 
 export function BooksClient() {
   const router = useRouter();
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [sort, setSort] = useState<"recent" | "title_asc" | "title_desc">("title_asc");
+  const [sort, setSort] = useState<SortValue>("title_asc");
   const [page, setPage] = useState(1);
+
+  // AR 레벨 필터: 설정 ar_enabled === 'on' 일 때만 보이고 서버로 보낸다. 꺼져 있으면 기존 검색과 같음
+  const arEnabled = useArEnabled();
+  const [arRange, setArRange] = useState("");
+  const [arInterest, setArInterest] = useState("");
+  const [availableOnly, setAvailableOnly] = useState(false);
   const restoredRef = useRef(false);
 
   // 마운트 후 URL ?q= 에서 검색어 복원 (SSR/CSR 초기값 불일치 방지)
@@ -50,18 +60,36 @@ export function BooksClient() {
   }, [search]);
 
   const hasQuery = debouncedSearch.trim().length > 0;
+  const range = arEnabled ? AR_LEVEL_RANGES.find((r) => r.key === arRange) : undefined;
+  const hasArFilter = arEnabled && (!!range || !!arInterest);
+  // AR 모드에서 영어로만 된 검색어는 단어 단위로 찾는다 (예: "magic tree"). 한글은 기존 느슨한 매칭 그대로
+  const englishQuery = /^[\x20-\x7E]+$/.test(debouncedSearch.trim());
 
   const { data, isLoading, isFetching } = useQuery({
-    queryKey: ["books", debouncedSearch, sort, page],
+    queryKey: arEnabled
+      ? ["books", debouncedSearch, sort, page, "ar", arRange, arInterest, availableOnly]
+      : ["books", debouncedSearch, sort, page],
     queryFn: () =>
-      getBooks({
-        q: debouncedSearch || undefined,
-        sort,
-        page,
-        limit: 20,
-      }),
+      arEnabled
+        ? getBooks({
+            q: debouncedSearch || undefined,
+            sort,
+            page,
+            limit: 20,
+            arMin: range?.min,
+            arMax: range?.max,
+            arInterest: arInterest || undefined,
+            available: availableOnly ? true : undefined,
+            wordSearch: englishQuery ? true : undefined,
+          })
+        : getBooks({
+            q: debouncedSearch || undefined,
+            sort: sort === "ar_asc" || sort === "ar_desc" ? "title_asc" : sort,
+            page,
+            limit: 20,
+          }),
     placeholderData: keepPreviousData,
-    enabled: hasQuery,
+    enabled: hasQuery || hasArFilter,
   });
 
   const books = (data?.books ?? []) as Book[];
@@ -105,13 +133,55 @@ export function BooksClient() {
             <option value="title_asc">가나다순</option>
             <option value="title_desc">가나다 역순</option>
             <option value="recent">최신순</option>
+            {arEnabled && <option value="ar_asc">레벨 낮은순</option>}
+            {arEnabled && <option value="ar_desc">레벨 높은순</option>}
           </select>
         </div>
+        {/* AR 레벨 필터 (ar_enabled 일 때만) */}
+        {arEnabled && (
+          <div className="mt-[1vh] space-y-2">
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              <span className="shrink-0 self-center text-[clamp(0.85rem,1.9vw,1.15rem)] font-semibold text-muted-foreground">레벨</span>
+              {AR_LEVEL_RANGES.map((r) => (
+                <button
+                  key={r.key}
+                  onClick={() => { setArRange(arRange === r.key ? "" : r.key); setPage(1); }}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] transition-colors ${
+                    arRange === r.key ? "border-primary bg-primary text-primary-foreground" : "active:bg-muted"
+                  }`}
+                >
+                  {r.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {AR_INTERESTS.map((i) => (
+                <button
+                  key={i}
+                  onClick={() => { setArInterest(arInterest === i ? "" : i); setPage(1); }}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] transition-colors ${
+                    arInterest === i ? "border-primary bg-primary text-primary-foreground" : "active:bg-muted"
+                  }`}
+                >
+                  {i}
+                </button>
+              ))}
+              <button
+                onClick={() => { setAvailableOnly(!availableOnly); setPage(1); }}
+                className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] transition-colors ${
+                  availableOnly ? "border-primary bg-primary text-primary-foreground" : "active:bg-muted"
+                }`}
+              >
+                대출 가능만
+              </button>
+            </div>
+          </div>
+        )}
       </header>
 
       {/* 도서 목록 */}
       <main className="flex-1 overflow-y-auto px-[clamp(1rem,3vw,2rem)] py-[1.5vh] space-y-[clamp(0.5rem,1vh,1rem)]">
-        {!hasQuery ? (
+        {!hasQuery && !hasArFilter ? (
           <div className="flex flex-col items-center justify-center py-[12vh] gap-4 text-muted-foreground px-6">
             <Search className="size-[clamp(3rem,8vw,4.5rem)] opacity-30" />
             <p className="text-[clamp(1.2rem,3vw,1.8rem)] font-semibold text-foreground text-center">
@@ -151,7 +221,7 @@ export function BooksClient() {
           </div>
         ) : books.length === 0 ? (
           <p className="text-[clamp(1.1rem,2.5vw,1.6rem)] text-muted-foreground text-center py-[10vh]">
-            {debouncedSearch ? "검색 결과가 없습니다" : "등록된 도서가 없습니다"}
+            {debouncedSearch || hasArFilter ? "검색 결과가 없습니다" : "등록된 도서가 없습니다"}
           </p>
         ) : (
           <>
@@ -181,6 +251,7 @@ export function BooksClient() {
                   <div className="flex flex-col gap-1 min-w-0">
                     <p className="text-[clamp(1.1rem,2.5vw,1.6rem)] font-semibold truncate">{book.title}</p>
                     <p className="text-[clamp(1rem,2.2vw,1.4rem)] text-muted-foreground">{book.author}</p>
+                    {arEnabled && <ArBadge book={book} />}
                     <Badge
                       variant={book.is_available ? "default" : "secondary"}
                       className="w-fit text-[clamp(0.85rem,1.8vw,1.1rem)] px-[clamp(0.5rem,1.5vw,1rem)] py-0.5 mt-1"

@@ -26,6 +26,8 @@ import { createBook, checkBarcodeExists, generateBarcodes } from "@/app/actions/
 import { getCurrentUser } from "@/app/actions/auth";
 import { uploadBookCoverImage } from "@/lib/storage";
 import { hangulToLatinKeys } from "@/lib/utils";
+import { ArFieldsEditor, useArEnabled } from "@/components/ar-fields";
+import { EMPTY_AR, appendArFields, type ArValues } from "@/lib/ar";
 
 interface BookInfo {
   title: string;
@@ -75,6 +77,9 @@ export default function ManualRegisterPage({
   const [isbnInput, setIsbnInput] = useState(""); // 실제 도서 ISBN 직접 입력
   const [locationDetail, setLocationDetail] = useState("");
   const [rentalDays, setRentalDays] = useState("");
+  // AR 칸: 설정 ar_enabled === 'on' 일 때만 보이고 서버로 보낸다
+  const arEnabled = useArEnabled();
+  const [arValues, setArValues] = useState<ArValues>(EMPTY_AR);
 
   const [barcodeCheck, setBarcodeCheck] = useState<"idle" | "checking" | "available" | "taken">("idle");
   const [barcodeCheckTitle, setBarcodeCheckTitle] = useState("");
@@ -226,6 +231,7 @@ export default function ManualRegisterPage({
       fd.set("location_group", shelfName);
       fd.set("location_detail", locationDetail.trim());
       if (rentalDays.trim()) fd.set("rental_days", rentalDays.trim());
+      if (arEnabled) appendArFields(fd, arValues);
 
       const result = await createBook(fd);
       if (!result.success) { setError(result.error || "등록 실패"); return; }
@@ -236,6 +242,7 @@ export default function ManualRegisterPage({
       setIsbnInput("");
       setLocationDetail("");
       setRentalDays("");
+      setArValues(EMPTY_AR);
       setBarcodeCheck("idle");
       setConfirmBarcode("");
       setTimeout(() => setSuccess(""), 3000);
@@ -318,6 +325,10 @@ export default function ManualRegisterPage({
               </div>
             </div>
           </div>
+
+          {arEnabled && (
+            <ArFieldsEditor value={arValues} onChange={setArValues} title={book.title} />
+          )}
 
           <hr />
 

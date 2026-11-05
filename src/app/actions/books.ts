@@ -2,7 +2,8 @@
 
 import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
-import { createBookSchema, updateBookSchema } from '@/lib/validations/books'
+import { createBookSchema, updateBookSchema, readArFields } from '@/lib/validations/books'
+import { AR_INTERESTS } from '@/lib/ar'
 import { getCurrentUser } from '@/app/actions/auth'
 import { allowsLostDelete } from '@/lib/site-mode'
 import type { ActionResult } from '@/types'
@@ -13,25 +14,56 @@ interface BookListParams {
   available?: boolean
   page?: number
   limit?: number
-  sort?: 'recent' | 'title_asc' | 'title_desc'
+  sort?: 'recent' | 'title_asc' | 'title_desc' | 'ar_asc' | 'ar_desc'
+  // ── 아래는 AR(ar_enabled) 화면에서만 보낸다. 지정하지 않으면 쿼리는 기존과 같다. ──
+  /** AR 레벨 하한(포함) */
+  arMin?: number
+  /** AR 레벨 상한(포함) */
+  arMax?: number
+  /** AR Interest (LG/MG/MG+/UG) */
+  arInterest?: string
+  /** true: AR 레벨 있는 책만 */
+  hasAr?: boolean
+  /** true: 검색어를 띄어쓰기 단위 단어로 찾는다(영어 원서용). 기본은 기존 느슨한 글자 매칭 */
+  wordSearch?: boolean
 }
 
 export async function getBooks(params: BookListParams = {}) {
-  const { q, available, page = 1, limit = 20, sort = 'recent' } = params
+  const { q, available, page = 1, limit = 20, sort = 'recent', arMin, arMax, arInterest, hasAr, wordSearch } = params
   const supabase = await createClient()
 
   // 공통 필터 적용 함수
-  const applyFilters = <T extends { or: (f: string) => T; eq: (c: string, v: unknown) => T }>(query: T): T => {
+  type Filterable<T> = {
+    or: (f: string) => T
+    eq: (c: string, v: unknown) => T
+    gte: (c: string, v: unknown) => T
+    lte: (c: string, v: unknown) => T
+    not: (c: string, op: string, v: unknown) => T
+  }
+  const applyFilters = <T extends Filterable<T>>(query: T): T => {
     let x = query
     if (q) {
       const terms = q.trim().split(/\s+/).filter(Boolean)
       const esc = (s: string) => s.replace(/[%_,]/g, "")
-      for (const term of terms) {
-        const loose = esc(term).split("").join("%")
-        x = x.or(`title.ilike.%${loose}%,author.ilike.%${term}%`)
+      if (wordSearch === true) {
+        // 단어 단위: 각 단어가 제목 또는 저자에 들어 있는 책 (예: "magic tree" → magic 과 tree 둘 다)
+        for (const term of terms) {
+          const w = term.replace(/[%_,()]/g, "")
+          if (!w) continue
+          x = x.or(`title.ilike.%${w}%,author.ilike.%${w}%`)
+        }
+      } else {
+        for (const term of terms) {
+          const loose = esc(term).split("").join("%")
+          x = x.or(`title.ilike.%${loose}%,author.ilike.%${term}%`)
+        }
       }
     }
     if (available !== undefined) x = x.eq('is_available', available)
+    if (hasAr === true) x = x.not('ar_level', 'is', null)
+    if (typeof arMin === 'number' && Number.isFinite(arMin)) x = x.gte('ar_level', arMin)
+    if (typeof arMax === 'number' && Number.isFinite(arMax)) x = x.lte('ar_level', arMax)
+    if (arInterest && (AR_INTERESTS as readonly string[]).includes(arInterest)) x = x.eq('ar_interest', arInterest)
     return x
   }
 
@@ -56,8 +88,30 @@ export async function getBooks(params: BookListParams = {}) {
     }
   }
 
-  // 최신순: DB 정렬 + 페이지네이션
   const offset = (page - 1) * limit
+
+  // AR 레벨순: DB 정렬(레벨 없는 책은 뒤로) + 페이지네이션. ar 화면에서만 보내는 정렬값
+  if (sort === 'ar_asc' || sort === 'ar_desc') {
+    let arQuery = supabase
+      .from('books')
+      .select('*', { count: 'exact' })
+      .eq('is_deleted', false)
+      .order('ar_level', { ascending: sort === 'ar_asc', nullsFirst: false })
+      .order('title', { ascending: true })
+      .range(offset, offset + limit - 1)
+    arQuery = applyFilters(arQuery as never) as never
+    const { data, count, error } = await arQuery
+    if (error) return { books: [], totalCount: 0, currentPage: page, totalPages: 0 }
+    const totalCount = count ?? 0
+    return {
+      books: data ?? [],
+      totalCount,
+      currentPage: page,
+      totalPages: Math.ceil(totalCount / limit),
+    }
+  }
+
+  // 최신순: DB 정렬 + 페이지네이션
   let query = supabase
     .from('books')
     .select('*', { count: 'exact' })
@@ -155,6 +209,8 @@ export async function createBook(formData: FormData): Promise<ActionResult<Book>
     kakao_url: formData.get('kakao_url') || undefined,
     sale_status: formData.get('sale_status') || undefined,
     rental_days: formData.get('rental_days') ? Number(formData.get('rental_days')) : null,
+    // AR 칸: 화면이 보낸 키만 들어간다 (ar_enabled가 꺼진 사이트는 안 보내므로 기존과 같음)
+    ...readArFields(formData),
   }
 
   const parsed = createBookSchema.safeParse(raw)
@@ -216,6 +272,8 @@ export async function updateBook(bookId: string, formData: FormData): Promise<Ac
   if (formData.has('cover_image')) {
     raw['cover_image'] = formData.get('cover_image') || ''
   }
+  // AR 칸: 넘어온 키만 반영 (빈 값 = 지우기). 안 보내면 기존과 같은 update 쿼리
+  Object.assign(raw, readArFields(formData))
 
   const parsed = updateBookSchema.safeParse(raw)
   if (!parsed.success) {

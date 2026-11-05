@@ -41,7 +41,9 @@ import {
 import { getBookById, setBookFeatured, unsetBookFeatured, updateBook, deleteBook } from "@/app/actions/books";
 import { getBookRentals } from "@/app/actions/rentals";
 import { getPublicSettings } from "@/app/actions/settings";
-import { allowsLostDelete } from "@/lib/site-mode";
+import { allowsLostDelete, isFlagOn } from "@/lib/site-mode";
+import { ArBadge, ArFieldsEditor } from "@/components/ar-fields";
+import { EMPTY_AR, appendArFields, arValuesFromBook, AR_INTEREST_LABELS, type ArValues } from "@/lib/ar";
 import { getShelves } from "@/app/actions/shelves";
 import { uploadBookCoverImage } from "@/lib/storage";
 import type { Book } from "@/types";
@@ -74,6 +76,10 @@ export default function AdminBookDetailPage() {
   const [isDeleting, startDelete] = useTransition();
   const [lostDeleteAllowed, setLostDeleteAllowed] = useState(false);
 
+  // AR 정보: 설정 ar_enabled === 'on' 일 때만 보이고, 수정 시 서버로 보낸다
+  const [arEnabled, setArEnabled] = useState(false);
+  const [arValues, setArValues] = useState<ArValues>(EMPTY_AR);
+
   function loadBook() {
     startTransition(async () => {
       const [bookData, rentalData] = await Promise.all([
@@ -90,7 +96,10 @@ export default function AdminBookDetailPage() {
     getShelves().then((data) => {
       setShelfNames((data as { name: string; type: string }[]).filter((s) => s.type !== "label").map((s) => s.name));
     });
-    getPublicSettings().then((s) => setLostDeleteAllowed(allowsLostDelete(s.site_type)));
+    getPublicSettings().then((s) => {
+      setLostDeleteAllowed(allowsLostDelete(s.site_type));
+      setArEnabled(isFlagOn(s, "ar_enabled"));
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
@@ -105,6 +114,7 @@ export default function AdminBookDetailPage() {
       description: book.description || "",
       cover_image: book.cover_image || "",
     });
+    setArValues(arValuesFromBook(book));
     setEditError("");
     setEditOpen(true);
   }
@@ -135,6 +145,7 @@ export default function AdminBookDetailPage() {
       fd.set("location_detail", ef.location_detail);
       fd.set("description", ef.description);
       fd.set("cover_image", ef.cover_image);
+      if (arEnabled) appendArFields(fd, arValues);
       const result = await updateBook(bookId, fd);
       if (!result.success) { setEditError(result.error || "수정에 실패했습니다."); return; }
       setEditOpen(false);
@@ -271,6 +282,22 @@ export default function AdminBookDetailPage() {
               </div>
             )}
           </div>
+
+          {arEnabled && (book.ar_level != null || book.ar_points != null || book.ar_quiz_no != null || book.ar_interest || book.word_count != null || book.lexile) && (
+            <div className="space-y-1.5">
+              <p className="text-sm text-muted-foreground">AR 정보</p>
+              <ArBadge book={book} />
+              {(book.ar_interest || book.word_count != null || book.lexile) && (
+                <p className="text-xs text-muted-foreground">
+                  {[
+                    book.ar_interest ? `Interest ${AR_INTEREST_LABELS[book.ar_interest] ?? book.ar_interest}` : null,
+                    book.word_count != null ? `${Number(book.word_count).toLocaleString()} words` : null,
+                    book.lexile ? `Lexile ${book.lexile}` : null,
+                  ].filter(Boolean).join(" · ")}
+                </p>
+              )}
+            </div>
+          )}
 
           {book.description && (
             <div>
@@ -532,6 +559,10 @@ export default function AdminBookDetailPage() {
               <label className="text-sm font-medium">설명</label>
               <textarea value={ef.description} onChange={(e) => setEf((p) => ({ ...p, description: e.target.value }))} className="w-full min-h-24 rounded-md border bg-background px-3 py-2 text-sm" />
             </div>
+
+            {arEnabled && (
+              <ArFieldsEditor value={arValues} onChange={setArValues} title={ef.title} />
+            )}
 
             {editError && <p className="text-sm text-destructive">{editError}</p>}
 

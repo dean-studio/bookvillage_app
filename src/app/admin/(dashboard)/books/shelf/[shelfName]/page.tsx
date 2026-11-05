@@ -33,9 +33,11 @@ import { getShelfBooks } from "@/app/actions/shelves";
 import { createBook, updateBook, deleteBook, checkBarcodeExists, getBookRentalCount, generateBarcodes } from "@/app/actions/books";
 import { getCurrentUser } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
-import { allowsLostDelete } from "@/lib/site-mode";
+import { allowsLostDelete, isFlagOn } from "@/lib/site-mode";
 import { uploadBookCoverImage } from "@/lib/storage";
 import { hangulToLatinKeys } from "@/lib/utils";
+import { ArFieldsEditor } from "@/components/ar-fields";
+import { EMPTY_AR, appendArFields, arValuesFromBook, type ArValues } from "@/lib/ar";
 
 interface BookInfo {
   title: string;
@@ -109,9 +111,16 @@ export default function ShelfBooksPage() {
 
   // 유치원·학원 모드: 대출 중인 책도 분실로 처리해 삭제 가능
   const [lostDeleteAllowed, setLostDeleteAllowed] = useState(false);
+  // AR 칸: 설정 ar_enabled === 'on' 일 때만 보이고 서버로 보낸다 (같은 설정 조회를 같이 씀)
+  const [arEnabled, setArEnabled] = useState(false);
   useEffect(() => {
-    getPublicSettings().then((s) => setLostDeleteAllowed(allowsLostDelete(s.site_type)));
+    getPublicSettings().then((s) => {
+      setLostDeleteAllowed(allowsLostDelete(s.site_type));
+      setArEnabled(isFlagOn(s, "ar_enabled"));
+    });
   }, []);
+
+  const [arValues, setArValues] = useState<ArValues>(EMPTY_AR);
 
   // Manual entry mode (ISBN 없는 도서)
   const [manualEntryMode, setManualEntryMode] = useState(false);
@@ -200,6 +209,7 @@ export default function ShelfBooksPage() {
     setRegSuccess(false);
     setDuplicateDetected(false);
     setCustomBarcode("");
+    setArValues(EMPTY_AR);
     try {
       // Step 1: Check if barcode already exists
       const existing = await checkBarcodeExists(isbn);
@@ -213,6 +223,8 @@ export default function ShelfBooksPage() {
           isbn: isbn,
           description: existing.book.description || "",
         });
+        // 같은 책 복본: 기존 책의 AR 정보를 그대로 채워 둔다 (AR 사용 중일 때만 화면·전송에 쓰임)
+        setArValues(arValuesFromBook(existing.book));
         setBarcode(isbn);
         return;
       }
@@ -247,6 +259,7 @@ export default function ShelfBooksPage() {
     setScanning(true);
     setRegError("");
     setBookInfo(null);
+    setArValues(EMPTY_AR);
     setRegSuccess(false);
 
     try {
@@ -352,6 +365,7 @@ export default function ShelfBooksPage() {
       formData.set("location_group", shelfName);
       formData.set("location_detail", locationDetail.trim());
       if (rentalDays.trim()) formData.set("rental_days", rentalDays.trim());
+      if (arEnabled) appendArFields(formData, arValues);
 
       const result = await createBook(formData);
       if (!result.success) {
@@ -361,6 +375,7 @@ export default function ShelfBooksPage() {
       setRegSuccess(true);
       setBarcode("");
       setBookInfo(null);
+      setArValues(EMPTY_AR);
       setLocationDetail("");
       setRentalDays("");
       setDuplicateDetected(false);
@@ -375,6 +390,7 @@ export default function ShelfBooksPage() {
 
   function startManualEntry() {
     setManualEntryMode(true);
+    setArValues(EMPTY_AR);
     setBookInfo({
       title: "",
       author: "",
@@ -481,6 +497,7 @@ export default function ShelfBooksPage() {
   // 검색 결과 선택 → 폼에 채우기 (바코드는 등록 시 자동 발급)
   function selectSearchResult(book: BookInfo) {
     setManualEntryMode(true);
+    setArValues(EMPTY_AR);
     setDuplicateDetected(false);
     setBarcode("");
     setCustomBarcode("");
@@ -493,6 +510,7 @@ export default function ShelfBooksPage() {
 
   function resetRegistration() {
     setBookInfo(null);
+    setArValues(EMPTY_AR);
     setBarcode("");
     setLocationDetail("");
     setRentalDays("");
@@ -834,6 +852,9 @@ export default function ShelfBooksPage() {
                     rows={3}
                   />
                 </div>
+                {arEnabled && (
+                  <ArFieldsEditor value={arValues} onChange={setArValues} title={bookInfo.title} />
+                )}
               </div>
 
               <hr />
@@ -1175,6 +1196,11 @@ export default function ShelfBooksPage() {
                       rows={2}
                     />
                   </div>
+                  {arEnabled && (
+                    <div className="col-span-2">
+                      <ArFieldsEditor value={arValues} onChange={setArValues} title={bookInfo.title} inputClassName="h-8 text-sm" />
+                    </div>
+                  )}
                   <div className="col-span-2">
                     <hr className="my-1" />
                   </div>
