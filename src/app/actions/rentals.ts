@@ -981,7 +981,7 @@ export async function getBookRentals(bookId: string) {
   const supabase = await createClient()
   const { data } = await supabase
     .from('rentals')
-    .select('id, user_id, rented_at, due_date, returned_at, user:profiles(name, dong_ho)')
+    .select('id, user_id, rented_at, due_date, returned_at, user:profiles!rentals_user_id_fkey(name, dong_ho)')
     .eq('book_id', bookId)
     .order('rented_at', { ascending: false })
     .limit(50)

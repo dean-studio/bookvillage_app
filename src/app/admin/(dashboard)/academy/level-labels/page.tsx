@@ -73,7 +73,7 @@ const LABEL_CSS = `
 .level-label .ll-band-bottom { height: 3mm; margin-top: auto; }
 .level-label .ll-level { text-align: center; font-size: 20pt; font-weight: 800; line-height: 1; padding: 2mm 0 1.5mm; font-variant-numeric: tabular-nums; }
 .level-label .ll-title {
-  padding: 0 1.2mm; font-size: 6.5pt; line-height: 1.25; text-align: center; word-break: break-all;
+  padding: 0 1.2mm; font-size: 6.5pt; line-height: 1.25; text-align: center; word-break: keep-all; overflow-wrap: anywhere;
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 .level-label .ll-code { display: flex; flex-direction: column; align-items: center; padding: 0 0.8mm; gap: 0.3mm; }
