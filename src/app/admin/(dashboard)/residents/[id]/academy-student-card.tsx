@@ -2,28 +2,141 @@
 
 // 회원 상세의 "학원 정보"(학년·ZPD·재원/퇴원) 카드. 학원 모드가 아니면 아무것도 그리지 않는다
 // (학원이 아닐 때는 academy 서버 액션도 부르지 않는다).
-// AR 사용(ar_enabled === 'on')이면 AR 퀴즈 통과 권수·누적 포인트·단어 수와 통과 목록도 보여 준다.
+// AR 사용(ar_enabled === 'on')이면 AR 퀴즈 통과 권수·누적 포인트·단어 수와 통과 목록(체크한 선생님 포함)도 보여 주고,
+// "책 찾아서 통과 기록"으로 이 학생이 빌렸던(반납된) 책이나 대출 기록이 없는 책을 골라 통과를 기록할 수 있다.
 
 import { useEffect, useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { GraduationCap, Loader2, Pencil, Undo2 } from "lucide-react";
+import { GraduationCap, Loader2, Pencil, Search, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { getPublicSettings } from "@/app/actions/settings";
 import {
   cancelArPass,
   getStudentAcademyInfo,
   getStudentArSummary,
+  recordArPassForBook,
   saveStudentAcademyInfo,
+  searchArPassCandidates,
   type AcademyMemberInfo,
+  type ArPassCandidateBook,
+  type ArPassCandidateRental,
+  type ArPassRecord,
   type ArStudentSummary,
 } from "@/app/actions/academy";
 import { isAcademy, isFlagOn } from "@/lib/site-mode";
+import { ArPassButton } from "../../academy/ar-pass";
 
 function numStr(v: number | null): string {
   return v === null ? "" : String(v);
+}
+
+function arInfo(level: number | null, points: number | null): string {
+  return [level !== null ? `BL ${level.toFixed(1)}` : "", points !== null ? `${points.toFixed(1)}pt` : ""].filter(Boolean).join(" · ");
+}
+
+/** "책 찾아서 통과 기록": 제목/바코드 검색 → 빌렸던(반납된) 책 / 대출 기록 없는 책에서 골라 기록 */
+function ArPassFinder({ userId, onRecorded }: { userId: string; onRecorded: () => void }) {
+  const [query, setQuery] = useState("");
+  const [found, setFound] = useState<{ query: string; rentals: ArPassCandidateRental[]; books: ArPassCandidateBook[] } | null>(null);
+  const [error, setError] = useState("");
+  const [isSearching, startSearching] = useTransition();
+
+  function search() {
+    const q = query.trim();
+    setError("");
+    startSearching(async () => {
+      const res = await searchArPassCandidates(userId, q);
+      if (!res.success || !res.data) {
+        setError(res.error || "책을 찾지 못했습니다.");
+        setFound(null);
+        return;
+      }
+      setFound({ query: q, ...res.data });
+    });
+  }
+
+  function updateRental(rentalId: string, next: ArPassRecord | null) {
+    setFound((f) => (f ? { ...f, rentals: f.rentals.map((r) => (r.rental_id === rentalId ? { ...r, result: next } : r)) } : f));
+    onRecorded();
+  }
+  function updateBook(bookId: string, next: ArPassRecord | null) {
+    setFound((f) => (f ? { ...f, books: f.books.map((b) => (b.book_id === bookId ? { ...b, result: next } : b)) } : f));
+    onRecorded();
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-3">
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          search();
+        }}
+      >
+        <Input className="h-10" placeholder="제목 또는 바코드 (비우면 최근 반납한 책)" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <Button type="submit" className="h-10 shrink-0" disabled={isSearching}>
+          {isSearching ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Search className="size-4 mr-1" />}
+          찾기
+        </Button>
+      </form>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+      {found && (
+        <div className="space-y-3 text-sm">
+          <div className="space-y-1.5">
+            <p className="font-medium">이 학생이 빌렸던 책 {found.query ? "" : "(최근 반납)"}</p>
+            {found.rentals.length === 0 ? (
+              <p className="text-muted-foreground">맞는 반납 기록이 없습니다.</p>
+            ) : (
+              <ul className="divide-y rounded-md border">
+                {found.rentals.map((r) => (
+                  <li key={r.rental_id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                    <span className="font-medium">{r.title}</span>
+                    <span className="font-mono text-xs text-muted-foreground">{r.barcode}</span>
+                    {arInfo(r.ar_level, r.ar_points) && <span className="text-xs text-muted-foreground">{arInfo(r.ar_level, r.ar_points)}</span>}
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(r.returned_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" })} 반납
+                    </span>
+                    <span className="ml-auto">
+                      <ArPassButton rentalId={r.rental_id} result={r.result} onChange={(next) => updateRental(r.rental_id, next)} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+          {found.query && (
+            <div className="space-y-1.5">
+              <p className="font-medium">대출 기록이 없는 책</p>
+              <p className="text-xs text-muted-foreground">학원 밖에서 읽은 책 등. 대출 기록 없이 통과만 기록합니다 (지금 빌려 간 책은 반납한 뒤 기록하세요).</p>
+              {found.books.length === 0 ? (
+                <p className="text-muted-foreground">맞는 책이 없습니다.</p>
+              ) : (
+                <ul className="divide-y rounded-md border">
+                  {found.books.map((b) => (
+                    <li key={b.book_id} className="flex flex-wrap items-center gap-2 px-3 py-2">
+                      <span className="font-medium">{b.title}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{b.barcode}</span>
+                      {arInfo(b.ar_level, b.ar_points) && <span className="text-xs text-muted-foreground">{arInfo(b.ar_level, b.ar_points)}</span>}
+                      <span className="ml-auto">
+                        <ArPassButton
+                          recordFn={() => recordArPassForBook(userId, b.book_id)}
+                          result={b.result}
+                          onChange={(next) => updateBook(b.book_id, next)}
+                        />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function AcademyStudentCard({ userId }: { userId: string }) {
@@ -40,6 +153,7 @@ export function AcademyStudentCard({ userId }: { userId: string }) {
   const [showAllAr, setShowAllAr] = useState(false);
   const [cancelId, setCancelId] = useState<string | null>(null);
   const [isCanceling, startCanceling] = useTransition();
+  const [showFinder, setShowFinder] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -68,6 +182,11 @@ export function AcademyStudentCard({ userId }: { userId: string }) {
   }, [userId]);
 
   if (!enabled) return null;
+
+  async function reloadAr() {
+    const again = await getStudentArSummary(userId);
+    if (again.success && again.data) setAr(again.data);
+  }
 
   function handleCancelAr(id: string) {
     setArError("");
@@ -196,7 +315,14 @@ export function AcademyStudentCard({ userId }: { userId: string }) {
 
         {arOn && (
           <div className="border-t pt-3 space-y-3">
-            <p className="text-sm font-semibold">AR 퀴즈 통과</p>
+            <div className="flex items-center gap-2">
+              <p className="text-sm font-semibold">AR 퀴즈 통과</p>
+              <Button size="sm" variant={showFinder ? "secondary" : "outline"} className="ml-auto" onClick={() => setShowFinder((v) => !v)}>
+                <Search className="size-4 mr-1" />
+                {showFinder ? "책 찾기 닫기" : "책 찾아서 통과 기록"}
+              </Button>
+            </div>
+            {showFinder && <ArPassFinder userId={userId} onRecorded={() => void reloadAr()} />}
             {!ar && !arError ? (
               <Loader2 className="size-5 animate-spin text-muted-foreground" />
             ) : ar ? (
@@ -217,7 +343,7 @@ export function AcademyStudentCard({ userId }: { userId: string }) {
                 </div>
                 {ar.items.length === 0 ? (
                   <p className="text-sm text-muted-foreground">
-                    아직 통과 기록이 없습니다. 반납 화면이나 반별 현황에서 &lsquo;AR 통과&rsquo;를 체크하면 여기에 쌓입니다.
+                    아직 통과 기록이 없습니다. 반납 화면·반별 현황에서 &lsquo;AR 통과&rsquo;를 체크하거나 위 &lsquo;책 찾아서 통과 기록&rsquo;으로 기록하면 여기에 쌓입니다.
                   </p>
                 ) : (
                   <ul className="divide-y rounded-lg border text-sm">
@@ -235,6 +361,7 @@ export function AcademyStudentCard({ userId }: { userId: string }) {
                         {it.words !== null && <span className="text-xs text-muted-foreground">{it.words.toLocaleString()} words</span>}
                         <span className="ml-auto text-xs text-muted-foreground">
                           {it.created_at ? new Date(it.created_at).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul" }) : ""}
+                          {it.recorded_by_name && ` · ${it.recorded_by_name} 선생님`}
                         </span>
                         {cancelId === it.id ? (
                           <span className="flex items-center gap-1">

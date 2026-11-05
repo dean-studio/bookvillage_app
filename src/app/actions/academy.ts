@@ -1172,12 +1172,15 @@ function round1(n: number): number {
   return Math.round(n * 10) / 10
 }
 
-/** 'YYYY-MM-DD' (KST) → 그날 0시/끝의 timestamptz 문자열 */
+/** 'YYYY-MM-DD' (KST) → 그날 0시의 timestamptz 문자열 */
 function kstDayStart(d: string): string {
   return `${d}T00:00:00+09:00`
 }
-function kstDayEnd(d: string): string {
-  return `${d}T23:59:59.999+09:00`
+/** 'YYYY-MM-DD' (KST) → 다음날 0시(KST)의 timestamptz 문자열. 기간 끝은 이 값 미만(lt)으로 거른다 */
+function kstNextDayStart(d: string): string {
+  const [y, m, day] = d.split('-').map(Number)
+  const next = new Date(Date.UTC(y, m - 1, day + 1))
+  return `${next.toISOString().slice(0, 10)}T00:00:00+09:00`
 }
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -1201,39 +1204,31 @@ function readBookAr(b: unknown): BookArInfo {
   }
 }
 
+type ArPassResult = ActionResult<{ record: ArPassRecord; already: boolean; noPoints: boolean }>
+
+/** 학생 확인: 회원(resident)이면서 비회원(is_guest) 아님 */
+async function isStudent(userId: string): Promise<boolean> {
+  const { data: student } = await supabaseAdmin.from('profiles').select('id, role, is_guest').eq('id', userId).maybeSingle()
+  return !!student && student.role === 'resident' && !student.is_guest
+}
+
 /**
- * AR 퀴즈 통과 기록. 선생님이 체크한다(젤리와 연결 안 함).
- * - rentalId 를 주면 그 대출의 학생·책으로 기록한다 (반납 화면·반별 현황).
+ * ar_results 한 건 넣기 (recordArPass·recordArPassForBook 공용).
  * - 같은 학생·같은 책은 1번만: 이미 있으면 새로 만들지 않고 기존 기록을 돌려준다(already: true).
  * - 포인트·단어 수는 지금 책의 ar_points·word_count 를 복사해 둔다(나중에 책 정보가 바뀌어도 기록은 그대로).
  */
-export async function recordArPass(rentalId: string): Promise<ActionResult<{ record: ArPassRecord; already: boolean; noPoints: boolean }>> {
-  const auth = await requireAcademyArAdmin()
-  if (!auth.ok) return { success: false, error: auth.error }
-
-  if (typeof rentalId !== 'string' || !rentalId) return { success: false, error: '대출 기록이 올바르지 않습니다.' }
-  const { data: rental } = await supabaseAdmin
-    .from('rentals')
-    .select('id, user_id, book_id')
-    .eq('id', rentalId)
-    .maybeSingle()
-  if (!rental) return { success: false, error: '대출 기록을 찾을 수 없습니다.' }
-
-  const { data: student } = await supabaseAdmin.from('profiles').select('id, role, is_guest').eq('id', rental.user_id).maybeSingle()
-  if (!student || student.role !== 'resident' || student.is_guest) return { success: false, error: '학생 회원의 대출만 기록할 수 있습니다.' }
-
-  const { data: book } = await supabaseAdmin
-    .from('books')
-    .select('id, ar_points, word_count')
-    .eq('id', rental.book_id)
-    .maybeSingle()
-  if (!book) return { success: false, error: '책을 찾을 수 없습니다.' }
-
+async function insertArPass(params: {
+  userId: string
+  book: { id: string; ar_points: number | string | null; word_count: number | string | null }
+  rentalId: string | null
+  recordedBy: string
+}): Promise<ArPassResult> {
+  const { userId, book, rentalId, recordedBy } = params
   const findExisting = async () => {
     const { data } = await supabaseAdmin
       .from('ar_results')
       .select('id, points, words, created_at')
-      .eq('user_id', rental.user_id)
+      .eq('user_id', userId)
       .eq('book_id', book.id)
       .maybeSingle()
     return data
@@ -1248,13 +1243,13 @@ export async function recordArPass(rentalId: string): Promise<ActionResult<{ rec
   const { data: inserted, error } = await supabaseAdmin
     .from('ar_results')
     .insert({
-      user_id: rental.user_id,
+      user_id: userId,
       book_id: book.id,
-      rental_id: rental.id,
+      rental_id: rentalId,
       passed: true,
       points: points === null ? 0 : round1(points),
       words: toNum(book.word_count),
-      recorded_by: auth.userId,
+      recorded_by: recordedBy,
     })
     .select('id, points, words, created_at')
     .single()
@@ -1268,6 +1263,67 @@ export async function recordArPass(rentalId: string): Promise<ActionResult<{ rec
     return { success: false, error: 'AR 통과 기록에 실패했습니다.' }
   }
   return { success: true, data: { record: { ...inserted, points: Number(inserted.points) || 0 }, already: false, noPoints: points === null } }
+}
+
+/**
+ * AR 퀴즈 통과 기록. 선생님이 체크한다(젤리와 연결 안 함).
+ * rentalId 의 학생·책으로 기록한다 (반납 화면·반별 현황·학생 상세). 반납된 대출만 된다.
+ */
+export async function recordArPass(rentalId: string): Promise<ArPassResult> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  if (typeof rentalId !== 'string' || !rentalId) return { success: false, error: '대출 기록이 올바르지 않습니다.' }
+  const { data: rental } = await supabaseAdmin
+    .from('rentals')
+    .select('id, user_id, book_id, returned_at')
+    .eq('id', rentalId)
+    .maybeSingle()
+  if (!rental) return { success: false, error: '대출 기록을 찾을 수 없습니다.' }
+  if (!rental.returned_at) return { success: false, error: '아직 반납하지 않은 대출입니다. 반납한 뒤 기록해 주세요.' }
+
+  if (!(await isStudent(rental.user_id))) return { success: false, error: '학생 회원의 대출만 기록할 수 있습니다.' }
+
+  const { data: book } = await supabaseAdmin
+    .from('books')
+    .select('id, ar_points, word_count')
+    .eq('id', rental.book_id)
+    .maybeSingle()
+  if (!book) return { success: false, error: '책을 찾을 수 없습니다.' }
+
+  return insertArPass({ userId: rental.user_id, book, rentalId: rental.id, recordedBy: auth.userId })
+}
+
+/**
+ * 대출 기록 없이 AR 통과 기록 (학원 밖에서 읽은 책 등). rental_id 는 비운다.
+ * 그 학생이 지금 빌려 가 있는 책이면 반납한 뒤 기록하게 한다(recordArPass 와 같은 기준).
+ */
+export async function recordArPassForBook(userId: string, bookId: string): Promise<ArPassResult> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  if (typeof userId !== 'string' || !userId) return { success: false, error: '학생이 올바르지 않습니다.' }
+  if (typeof bookId !== 'string' || !bookId) return { success: false, error: '책이 올바르지 않습니다.' }
+  if (!(await isStudent(userId))) return { success: false, error: '학생 회원만 기록할 수 있습니다.' }
+
+  const { data: book } = await supabaseAdmin
+    .from('books')
+    .select('id, ar_points, word_count')
+    .eq('id', bookId)
+    .eq('is_deleted', false)
+    .maybeSingle()
+  if (!book) return { success: false, error: '책을 찾을 수 없습니다.' }
+
+  const { data: active } = await supabaseAdmin
+    .from('rentals')
+    .select('id')
+    .eq('user_id', userId)
+    .eq('book_id', book.id)
+    .is('returned_at', null)
+    .limit(1)
+  if (active && active.length > 0) return { success: false, error: '지금 빌려 간 책입니다. 반납한 뒤 기록해 주세요.' }
+
+  return insertArPass({ userId, book, rentalId: null, recordedBy: auth.userId })
 }
 
 /** AR 통과 기록 취소(삭제) */
@@ -1433,6 +1489,8 @@ export type ArPassedBook = ArPassRecord & {
   book_id: string | null
   title: string
   ar_level: number | null
+  /** 체크한 선생님 이름 (recorded_by → profiles.name). 모르면 null */
+  recorded_by_name: string | null
 }
 
 export type ArStudentSummary = {
@@ -1444,10 +1502,11 @@ export type ArStudentSummary = {
 
 async function buildArSummary(userId: string): Promise<ArStudentSummary> {
   const items: ArPassedBook[] = []
+  const recorders = new Map<string, string>() // 기록 id → recorded_by
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await supabaseAdmin
       .from('ar_results')
-      .select('id, book_id, points, words, created_at, passed, book:books(title, ar_level)')
+      .select('id, book_id, points, words, created_at, passed, recorded_by, book:books(title, ar_level)')
       .eq('user_id', userId)
       .order('created_at', { ascending: false })
       .order('id')
@@ -1464,9 +1523,24 @@ async function buildArSummary(userId: string): Promise<ArStudentSummary> {
         created_at: r.created_at,
         title: b.title ?? '(삭제된 책)',
         ar_level: toNum(b.ar_level ?? null),
+        recorded_by_name: null,
       })
+      if (r.recorded_by) recorders.set(r.id, r.recorded_by)
     }
     if (!data || data.length < PAGE) break
+  }
+  // 체크한 선생님 이름 (선생님은 몇 명뿐이라 한 번에 읽는다)
+  const recorderIds = [...new Set(recorders.values())]
+  if (recorderIds.length > 0) {
+    const names = new Map<string, string>()
+    for (const ids of chunk(recorderIds, 100)) {
+      const { data } = await supabaseAdmin.from('profiles').select('id, name').in('id', ids)
+      for (const p of data ?? []) names.set(p.id, p.name)
+    }
+    for (const it of items) {
+      const by = recorders.get(it.id)
+      it.recorded_by_name = by ? names.get(by) ?? null : null
+    }
   }
   return {
     passedCount: items.length,
@@ -1485,6 +1559,102 @@ export async function getStudentArSummary(userId: string): Promise<ActionResult<
     return { success: true, data: await buildArSummary(userId) }
   } catch {
     return { success: false, error: 'AR 통과 기록을 불러오지 못했습니다.' }
+  }
+}
+
+export type ArPassCandidateRental = {
+  rental_id: string
+  book_id: string
+  title: string
+  barcode: string
+  ar_level: number | null
+  ar_points: number | null
+  returned_at: string
+  result: ArPassRecord | null
+}
+
+export type ArPassCandidateBook = {
+  book_id: string
+  title: string
+  barcode: string
+  ar_level: number | null
+  ar_points: number | null
+  result: ArPassRecord | null
+}
+
+/**
+ * 학생 상세 "책 찾아서 통과 기록": 제목/바코드로 찾는다.
+ * - rentals: 그 학생이 빌렸다 반납한 책(같은 책은 최근 1번). 검색어가 비면 최근 반납 20권.
+ * - books: 대출 기록이 없는 책(학원 밖에서 읽은 책 등) 중 검색어에 맞는 책 최대 20권. 검색어가 비면 빈 목록.
+ */
+export async function searchArPassCandidates(
+  userId: string,
+  query: string
+): Promise<ActionResult<{ rentals: ArPassCandidateRental[]; books: ArPassCandidateBook[] }>> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+  if (typeof userId !== 'string' || !userId) return { success: false, error: '학생이 올바르지 않습니다.' }
+  if (!(await isStudent(userId))) return { success: false, error: '학생 회원만 기록할 수 있습니다.' }
+
+  const q = typeof query === 'string' ? query.trim().slice(0, 100) : ''
+  const qLower = q.toLowerCase()
+  const LIMIT = 20
+
+  try {
+    // 1) 그 학생의 반납된 대출 전체(학생 1명이라 많아야 수백~수천 건) → 검색어로 거르기
+    const seen = new Set<string>()
+    const rentals: ArPassCandidateRental[] = []
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabaseAdmin
+        .from('rentals')
+        .select('id, book_id, returned_at, book:books(title, barcode, ar_level, ar_points, is_deleted)')
+        .eq('user_id', userId)
+        .not('returned_at', 'is', null)
+        .order('returned_at', { ascending: false })
+        .order('id')
+        .range(from, from + PAGE - 1)
+      if (error) throw new Error(error.message)
+      for (const r of data ?? []) {
+        if (!r.returned_at || seen.has(r.book_id)) continue
+        const raw = (r.book ?? {}) as { is_deleted?: boolean }
+        const b = readBookAr(r.book)
+        if (raw.is_deleted) continue
+        if (q && !b.title.toLowerCase().includes(qLower) && b.barcode !== q) continue
+        seen.add(r.book_id)
+        rentals.push({ rental_id: r.id, book_id: r.book_id, title: b.title, barcode: b.barcode, ar_level: b.ar_level, ar_points: b.ar_points, returned_at: r.returned_at, result: null })
+      }
+      if (!data || data.length < PAGE) break
+    }
+    const rentalList = rentals.slice(0, q ? 50 : LIMIT)
+
+    // 2) 대출 기록 없는 책 (검색어가 있을 때만)
+    const books: ArPassCandidateBook[] = []
+    if (q) {
+      const sel = 'id, title, barcode, ar_level, ar_points'
+      const [byCode, byTitle] = await Promise.all([
+        supabaseAdmin.from('books').select(sel).eq('is_deleted', false).eq('barcode', q).limit(5),
+        supabaseAdmin.from('books').select(sel).eq('is_deleted', false).ilike('title', `%${escapeLike(q)}%`).order('title').limit(LIMIT + 10),
+      ])
+      if (byCode.error || byTitle.error) throw new Error('books')
+      // 지금 빌려 가 있는 책은 반납 후에 기록하므로 뺀다
+      const { data: active } = await supabaseAdmin.from('rentals').select('book_id').eq('user_id', userId).is('returned_at', null)
+      const activeIds = new Set((active ?? []).map((r) => r.book_id))
+      for (const b of [...(byCode.data ?? []), ...(byTitle.data ?? [])]) {
+        if (books.length >= LIMIT) break
+        if (seen.has(b.id) || activeIds.has(b.id) || books.some((x) => x.book_id === b.id)) continue
+        books.push({ book_id: b.id, title: b.title, barcode: b.barcode, ar_level: toNum(b.ar_level), ar_points: toNum(b.ar_points), result: null })
+      }
+    }
+
+    // 3) 이미 통과 기록이 있는지
+    if (rentalList.length + books.length > 0) {
+      const results = await fetchArResultMap([userId])
+      for (const r of rentalList) r.result = results.get(`${userId}:${r.book_id}`) ?? null
+      for (const b of books) b.result = results.get(`${userId}:${b.book_id}`) ?? null
+    }
+    return { success: true, data: { rentals: rentalList, books } }
+  } catch {
+    return { success: false, error: '책을 찾지 못했습니다.' }
   }
 }
 
@@ -1520,7 +1690,7 @@ export async function getArPointRanking(params: { startDate: string; endDate: st
         .select('user_id, points, words')
         .eq('passed', true)
         .gte('created_at', kstDayStart(startDate))
-        .lte('created_at', kstDayEnd(endDate))
+        .lt('created_at', kstNextDayStart(endDate))
         .order('id')
         .range(from, from + PAGE - 1)
       if (error) throw new Error(error.message)
@@ -1534,7 +1704,11 @@ export async function getArPointRanking(params: { startDate: string; endDate: st
       if (!data || data.length < PAGE) break
     }
 
-    const [groups, residents] = await Promise.all([readMemberGroups(), fetchResidents()])
+    const [groups, residents, memberInfo] = await Promise.all([
+      readMemberGroups(),
+      fetchResidents(),
+      totals.size > 0 ? fetchMemberInfo([...totals.keys()]) : Promise.resolve(new Map<string, MemberInfo>()),
+    ])
     const profileMap = new Map(residents.map((r) => [r.id, r]))
     const classes = [...groups]
     const collator = new Intl.Collator('ko', { numeric: true })
@@ -1545,6 +1719,7 @@ export async function getArPointRanking(params: { startDate: string; endDate: st
     for (const [userId, t] of totals) {
       const p = profileMap.get(userId)
       if (!p) continue // 회원(학생)이 아닌 기록은 랭킹에서 뺀다
+      if (memberInfo.get(userId)?.status === 'inactive') continue // 퇴원생은 랭킹에서 뺀다
       if (group !== undefined && p.dong_ho !== group) continue
       items.push({ user_id: userId, name: p.name, group: p.dong_ho, points: round1(t.points), passed: t.passed, words: t.words })
     }

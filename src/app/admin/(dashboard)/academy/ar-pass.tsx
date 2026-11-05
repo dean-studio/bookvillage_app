@@ -1,7 +1,7 @@
 "use client";
 
 // AR 퀴즈 통과 체크 (학원 모드 + ar_enabled === 'on' 전용). 선생님이 눌러 ar_results 에 기록한다. 젤리와 연결하지 않는다.
-// - ArPassButton: 대출 1건에 대한 통과 체크/취소 버튼 (반별 현황·반납 화면 공용)
+// - ArPassButton: 대출 1건(또는 recordFn 으로 대출 기록 없는 책)에 대한 통과 체크/취소 버튼 (반별 현황·반납 화면·학생 상세 공용)
 // - ReturnArPass: 반납 화면 결과 영역에 끼우는 상자. 학원+AR 이 아니면 아무것도 그리지 않는다(반납 화면은 그대로).
 
 import { useEffect, useState, useTransition } from "react";
@@ -24,11 +24,14 @@ function pts(n: number): string {
 
 export function ArPassButton({
   rentalId,
+  recordFn,
   result,
   onChange,
   size = "sm",
 }: {
-  rentalId: string;
+  rentalId?: string;
+  /** 대출 기록 없이 기록할 때(recordArPassForBook) 쓴다. 주면 rentalId 대신 이걸 부른다 */
+  recordFn?: () => ReturnType<typeof recordArPass>;
   result: ArPassRecord | null;
   onChange: (next: ArPassRecord | null) => void;
   size?: "sm" | "lg";
@@ -40,7 +43,8 @@ export function ArPassButton({
   function pass() {
     setMsg(null);
     startTransition(async () => {
-      const res = await recordArPass(rentalId);
+      const res = recordFn ? await recordFn() : rentalId ? await recordArPass(rentalId) : null;
+      if (!res) return;
       if (!res.success || !res.data) {
         setMsg({ type: "error", text: res.error || "기록에 실패했습니다." });
         return;
@@ -113,18 +117,24 @@ export function ArPassButton({
   );
 }
 
-// 반납 화면에서 설정을 한 번만 읽는다 (반납할 때마다 다시 읽지 않게)
-let academyArPromise: Promise<boolean> | null = null;
+// 반납 화면 설정 읽기: 관리자 화면은 react-query(QueryClientProvider) 밖이라 ["publicSettings"] 캐시를 쓸 수 없다.
+// 그래서 30초짜리 짧은 캐시만 둔다 — 연달아 반납할 때는 다시 읽지 않고, 설정을 바꾸면 30초 안에 반영된다.
+const SETTINGS_TTL_MS = 30 * 1000;
+let academyArCache: { at: number; promise: Promise<boolean> } | null = null;
 function loadAcademyAr(): Promise<boolean> {
-  if (!academyArPromise) {
-    academyArPromise = getPublicSettings()
+  const now = Date.now();
+  if (academyArCache && now - academyArCache.at < SETTINGS_TTL_MS) return academyArCache.promise;
+  const entry = {
+    at: now,
+    promise: getPublicSettings()
       .then((s) => isAcademy(s.site_type) && isFlagOn(s, "ar_enabled"))
       .catch(() => {
-        academyArPromise = null;
+        if (academyArCache === entry) academyArCache = null;
         return false;
-      });
-  }
-  return academyArPromise;
+      }),
+  };
+  academyArCache = entry;
+  return entry.promise;
 }
 
 /** 반납 완료 결과 안에 넣는 AR 퀴즈 통과 체크 상자. 학원 + AR 사용이 아니면 null */

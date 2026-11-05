@@ -32,6 +32,7 @@ import { getJellyRankingByPeriod } from "@/app/actions/jelly";
 import { getPublicSettings } from "@/app/actions/settings";
 import { getArPointRanking, type ArRankItem } from "@/app/actions/academy";
 import { isAcademy, isFlagOn } from "@/lib/site-mode";
+import { getKSTDateString } from "@/lib/date";
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getDashboardStats>>>;
 type JellyRankItem = Awaited<ReturnType<typeof getJellyRankingByPeriod>>[number];
@@ -44,6 +45,14 @@ function getDefaultRange() {
     start: start.toISOString().split("T")[0],
     end: end.toISOString().split("T")[0],
   };
+}
+
+/** AR 탭 전용 기간 초기값: 한국 시간 오늘과 30일 전 (다른 탭의 getDefaultRange 는 그대로 둔다) */
+function getKSTDefaultRange() {
+  const end = getKSTDateString();
+  const [y, m, d] = end.split("-").map(Number);
+  const start = new Date(Date.UTC(y, m - 1, d - 30)).toISOString().split("T")[0];
+  return { start, end };
 }
 
 function getRankBadge(rank: number) {
@@ -67,7 +76,8 @@ export default function AdminRankingsPage() {
 
   // 학원 모드 + AR 사용(ar_enabled === 'on')일 때만 "AR 포인트" 탭. 아니면 기존 4개 탭 그대로
   const [arTab, setArTab] = useState(false);
-  const [period, setPeriod] = useState(defaults);
+  // AR 탭 기간: 처음엔 한국 시간 기준 최근 30일, "조회"를 누르면 위 기간 입력값을 따른다
+  const [period, setPeriod] = useState(getKSTDefaultRange);
   const [arGroup, setArGroup] = useState("");
   const [arRanking, setArRanking] = useState<ArRankItem[]>([]);
   const [arClasses, setArClasses] = useState<string[]>([]);
@@ -102,7 +112,6 @@ export default function AdminRankingsPage() {
   }, [arTab, period, arGroup]);
 
   function fetchData(start: string, end: string) {
-    setPeriod((p) => (p.start === start && p.end === end ? p : { start, end }));
     startTransition(async () => {
       const [statsData, jellyData] = await Promise.all([
         getDashboardStats(start, end),
@@ -119,7 +128,13 @@ export default function AdminRankingsPage() {
 
   function handleSearch() {
     if (!startDate || !endDate) return;
-    fetchData(startDate, endDate);
+    searchPeriod(startDate, endDate);
+  }
+
+  // 조회·빠른 기간 버튼: 기존 탭 조회 + AR 탭 기간도 같이 맞춘다 (처음 열 때는 AR 탭만 한국 시간 초기값)
+  function searchPeriod(start: string, end: string) {
+    setPeriod((p) => (p.start === start && p.end === end ? p : { start, end }));
+    fetchData(start, end);
   }
 
   const periodLabel = `${startDate} ~ ${endDate}`;
@@ -183,7 +198,7 @@ export default function AdminRankingsPage() {
                   const e = end.toISOString().split("T")[0];
                   setStartDate(s);
                   setEndDate(e);
-                  fetchData(s, e);
+                  searchPeriod(s, e);
                 }}
               >
                 {label}
@@ -487,7 +502,7 @@ export default function AdminRankingsPage() {
                     ))}
                   </select>
                   {isArPending && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
-                  <span className="text-xs text-muted-foreground">선생님이 AR 퀴즈 통과를 체크한 날 기준 ({period.start} ~ {period.end})</span>
+                  <span className="text-xs text-muted-foreground">선생님이 AR 퀴즈 통과를 체크한 날 기준 ({period.start} ~ {period.end}, 한국 시간 기준) · 퇴원생 제외</span>
                 </div>
                 {arError ? (
                   <p className="text-sm text-destructive text-center py-8">{arError}</p>

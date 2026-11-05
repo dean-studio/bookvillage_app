@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
 import { cn } from "@/lib/utils";
-import { isAcademy } from "@/lib/site-mode";
+import { isAcademy, isFlagOn } from "@/lib/site-mode";
 
 type NavItem = { type?: "link"; href: string; label: string; icon: typeof LayoutDashboard; exact?: boolean } | { type: "divider" };
 
@@ -49,12 +49,11 @@ const navItems: NavItem[] = [
 // QR 회원카드 운영(유치원 등) 시 회원 목록 아래에 노출
 const qrCardItem: NavItem = { href: "/admin/residents/cards", label: "QR 카드 인쇄", icon: QrCode };
 
-// 학원 모드에서만: 회원 목록(·QR 카드 인쇄) 아래 반별 현황, 도서 등록 아래 일괄 등록·AR 정보 입력, 로고 인쇄 아래 레벨 라벨 인쇄
+// 학원 모드에서만: 회원 목록(·QR 카드 인쇄) 아래 반별 현황, 도서 등록 아래 일괄 등록(·AR 정보 입력), 로고 인쇄 아래 레벨 라벨 인쇄
+// AR 정보 입력·레벨 라벨 인쇄는 학원 + AR 사용(ar_enabled === 'on')일 때만
 const academyClassItem: NavItem = { href: "/admin/academy/classes", label: "반별 현황", icon: School };
-const academyBookItems: NavItem[] = [
-  { href: "/admin/academy/import", label: "일괄 등록", icon: FileSpreadsheet },
-  { href: "/admin/academy/ar-missing", label: "AR 정보 입력", icon: GraduationCap },
-];
+const academyImportItem: NavItem = { href: "/admin/academy/import", label: "일괄 등록", icon: FileSpreadsheet };
+const academyArMissingItem: NavItem = { href: "/admin/academy/ar-missing", label: "AR 정보 입력", icon: GraduationCap };
 const academyLabelItem: NavItem = { href: "/admin/academy/level-labels", label: "레벨 라벨 인쇄", icon: Tags };
 
 // 서재 관리 페이지에서는 데스크톱에서도 사이드바를 접음
@@ -65,6 +64,7 @@ export function AdminSidebar() {
   const [adminName, setAdminName] = useState<string>("");
   const [qrMode, setQrMode] = useState(false);
   const [academyMode, setAcademyMode] = useState(false);
+  const [arMode, setArMode] = useState(false);
   const pathname = usePathname();
 
   useEffect(() => {
@@ -74,6 +74,7 @@ export function AdminSidebar() {
     getPublicSettings().then((s) => {
       setQrMode(s.login_method === "qr");
       setAcademyMode(isAcademy(s.site_type));
+      setArMode(isFlagOn(s, "ar_enabled"));
     });
   }, []);
 
@@ -94,8 +95,8 @@ export function AdminSidebar() {
     ? baseItems.flatMap((item) => {
         if (!("href" in item)) return [item];
         if (item.href === classAnchor) return [item, academyClassItem];
-        if (item.href === "/admin/books/new") return [item, ...academyBookItems];
-        if (item.href === "/admin/books/logo-print") return [item, academyLabelItem];
+        if (item.href === "/admin/books/new") return arMode ? [item, academyImportItem, academyArMissingItem] : [item, academyImportItem];
+        if (item.href === "/admin/books/logo-print") return arMode ? [item, academyLabelItem] : [item];
         return [item];
       })
     : baseItems;

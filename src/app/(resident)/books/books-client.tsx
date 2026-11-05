@@ -48,7 +48,21 @@ export function BooksClient() {
   const [arRange, setArRange] = useState("");
   const [arInterest, setArInterest] = useState("");
   const [availableOnly, setAvailableOnly] = useState(false);
+  // "내 레벨 책"을 켜기 전의 "대출 가능만" 상태. 끌 때 되돌린다 (켜 둔 동안 직접 바꾸면 그 값을 그대로 둔다)
+  const availableBeforeMyLevel = useRef<boolean | null>(null);
   const restoredRef = useRef(false);
+
+  // "내 레벨 책" 켜기/끄기: 켜면 "대출 가능만"도 켜진 상태로 보이게, 끄면 원래대로
+  function setMyLevelChip(on: boolean) {
+    if (on && !myLevelOn) {
+      availableBeforeMyLevel.current = availableOnly;
+      setAvailableOnly(true);
+    } else if (!on && myLevelOn && availableBeforeMyLevel.current !== null) {
+      setAvailableOnly(availableBeforeMyLevel.current);
+    }
+    if (!on) availableBeforeMyLevel.current = null;
+    setMyLevel(on);
+  }
 
   // 마운트 후 URL ?q= 에서 검색어 복원 (SSR/CSR 초기값 불일치 방지)
   useEffect(() => {
@@ -96,11 +110,11 @@ export function BooksClient() {
             sort,
             page,
             limit: 20,
-            // "내 레벨 책": 내 ZPD 범위 + 대출 가능만
+            // "내 레벨 책": 내 ZPD 범위 (+ 켤 때 "대출 가능만"도 같이 켜짐)
             arMin: myLevelOn ? (myZpd?.zpd_low ?? undefined) : range?.min,
             arMax: myLevelOn ? (myZpd?.zpd_high ?? undefined) : range?.max,
             arInterest: arInterest || undefined,
-            available: availableOnly || myLevelOn ? true : undefined,
+            available: availableOnly ? true : undefined,
             wordSearch: englishQuery ? true : undefined,
           })
         : getBooks({
@@ -165,7 +179,7 @@ export function BooksClient() {
               <span className="shrink-0 self-center text-[clamp(0.85rem,1.9vw,1.15rem)] font-semibold text-muted-foreground">레벨</span>
               {myZpd && (
                 <button
-                  onClick={() => { setMyLevel(!myLevelOn); setArRange(""); setPage(1); }}
+                  onClick={() => { setMyLevelChip(!myLevelOn); setArRange(""); setPage(1); }}
                   className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] font-semibold transition-colors ${
                     myLevelOn ? "border-sky-600 bg-sky-600 text-white" : "border-sky-400 text-sky-700 dark:text-sky-300 active:bg-muted"
                   }`}
@@ -176,7 +190,7 @@ export function BooksClient() {
               {AR_LEVEL_RANGES.map((r) => (
                 <button
                   key={r.key}
-                  onClick={() => { setArRange(arRange === r.key ? "" : r.key); setMyLevel(false); setPage(1); }}
+                  onClick={() => { setArRange(arRange === r.key ? "" : r.key); setMyLevelChip(false); setPage(1); }}
                   className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] transition-colors ${
                     arRange === r.key ? "border-primary bg-primary text-primary-foreground" : "active:bg-muted"
                   }`}
@@ -198,7 +212,7 @@ export function BooksClient() {
                 </button>
               ))}
               <button
-                onClick={() => { setAvailableOnly(!availableOnly); setPage(1); }}
+                onClick={() => { setAvailableOnly(!availableOnly); availableBeforeMyLevel.current = null; setPage(1); }}
                 className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] transition-colors ${
                   availableOnly ? "border-primary bg-primary text-primary-foreground" : "active:bg-muted"
                 }`}

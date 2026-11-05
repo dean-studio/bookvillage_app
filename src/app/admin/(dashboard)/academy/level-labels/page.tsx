@@ -1,7 +1,7 @@
 "use client";
 
 // 학원 모드 전용: 책등에 붙이는 AR 레벨 라벨 인쇄 (A4, 한 줄 8개 × 7줄 = 56개).
-// 라벨 1개 = 24×36mm: 위 색 띠(레벨대별 색) + AR 레벨 크게 + 아래 칸(제목 짧게 / 바코드 / 없음) + 아래 색 띠.
+// 라벨 1개 = 23.5×36mm (8개 × 23.5 + 간격 7 × 1 = 195mm, 그리드 폭 199mm 고정이라 인쇄 폭 200mm 안에서 8칸이 7칸으로 밀리지 않는다): 위 색 띠(레벨대별 색) + AR 레벨 크게 + 아래 칸(제목 짧게 / 바코드 / 없음) + 아래 색 띠.
 // 화면 미리보기도 mm 단위라 인쇄와 같은 크기로 보인다. 인쇄 규칙은 이 화면 안의 <style> 에만 둔다(다른 인쇄 화면 영향 없음).
 
 import { useEffect, useRef, useState, useTransition } from "react";
@@ -26,7 +26,10 @@ function LabelBarcode({ value }: { value: string }) {
         format: "CODE128",
         width: 1,
         height: 28,
-        margin: 0,
+        // 바코드 앞뒤 여백(quiet zone, 막대 10개 폭). 없으면 스캐너가 잘 못 읽는다. 위아래는 칸이 좁아 0
+        margin: 10,
+        marginTop: 0,
+        marginBottom: 0,
         displayValue: false,
       });
     } catch {
@@ -58,9 +61,9 @@ function LevelLabel({ book, bottom }: { book: LevelLabelBook; bottom: BottomMode
 }
 
 const LABEL_CSS = `
-.level-label-grid { display: flex; flex-wrap: wrap; gap: 1mm; }
+.level-label-grid { display: flex; flex-wrap: wrap; gap: 1mm; width: 199mm; box-sizing: border-box; }
 .level-label {
-  flex: 0 0 24mm; width: 24mm; height: 36mm; box-sizing: border-box; overflow: hidden;
+  flex: 0 0 23.5mm; width: 23.5mm; height: 36mm; box-sizing: border-box; overflow: hidden;
   display: flex; flex-direction: column; align-items: stretch;
   background: #fff; color: #111827; border: 0.6mm solid #999;
   break-inside: avoid; page-break-inside: avoid;
@@ -74,12 +77,14 @@ const LABEL_CSS = `
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 .level-label .ll-code { display: flex; flex-direction: column; align-items: center; padding: 0 0.8mm; gap: 0.3mm; }
-.level-label .ll-code svg { width: 100%; height: 8mm; }
+.level-label .ll-code svg { width: 100%; height: 8mm; background: #fff; }
 .level-label .ll-code span { font-size: 5.5pt; font-family: ui-monospace, monospace; line-height: 1; }
 .level-label .ll-spacer { flex: 1 1 auto; }
 .level-label.ll-blank { border: 0.3mm dashed #d1d5db; background: transparent; }
 @media print {
-  .level-label-grid { gap: 1mm !important; }
+  /* 바깥 space-y 마진 없애기 (라벨 칸 위치가 화면 여백에 밀리지 않게). 라벨 안쪽(.ll-band-bottom 의 margin-top:auto)은 건드리지 않는다 */
+  .level-labels-root > *, .level-labels-root > * > * { margin-top: 0 !important; margin-bottom: 0 !important; margin-block: 0 !important; }
+  .level-label-grid { gap: 1mm !important; width: 199mm !important; }
   .level-label.ll-blank { visibility: hidden; }
 }
 `;
@@ -135,7 +140,7 @@ function LevelLabelsView() {
   const hasLabels = !!books && books.length > 0;
 
   return (
-    <div className="space-y-6">
+    <div className="level-labels-root space-y-6">
       <style>{LABEL_CSS}</style>
 
       <div className="flex items-center justify-between gap-2 print:hidden">
@@ -157,7 +162,7 @@ function LevelLabelsView() {
         </CardHeader>
         <CardContent className="space-y-4">
           <p className="text-sm text-muted-foreground">
-            AR 레벨이 입력된 책만 나옵니다. 인쇄하면 라벨 1개가 24×36mm 크기로, A4 한 장에 56개(8개 × 7줄)씩 나옵니다.
+            AR 레벨이 입력된 책만 나옵니다. 인쇄하면 라벨 1개가 23.5×36mm 크기로, A4 한 장에 56개(8개 × 7줄)씩 나옵니다.
             레벨대마다 색 띠가 달라 책장에서 레벨을 한눈에 볼 수 있습니다.
           </p>
 
@@ -229,6 +234,12 @@ function LevelLabelsView() {
               전체 레벨
             </button>
           </div>
+
+          {bottom === "barcode" && (
+            <p className="text-sm text-amber-700 dark:text-amber-400">
+              책등 라벨의 바코드는 번호 확인용입니다. 대출용 바코드는 &lsquo;바코드 생성&rsquo; 메뉴를 쓰세요.
+            </p>
+          )}
 
           {error && (
             <p className="flex items-center gap-1.5 text-sm text-destructive">
