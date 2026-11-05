@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt, UserRound, QrCode, ArrowRightLeft, FolderOpen, Archive, Layers, School, FileSpreadsheet, GraduationCap } from "lucide-react";
+import { Menu, X, LogOut, LayoutDashboard, BookPlus, BookCheck, BookDown, Settings, Trash2, AlertTriangle, Library, Users, Trophy, ClipboardCheck, Barcode, UserCircle, Megaphone, Sticker, FileText, UserPlus, CalendarRange, Newspaper, Receipt, UserRound, QrCode, ArrowRightLeft, FolderOpen, Archive, Layers, School, FileSpreadsheet, GraduationCap, Tags } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { adminSignOut, getCurrentUser } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
@@ -49,12 +49,13 @@ const navItems: NavItem[] = [
 // QR 회원카드 운영(유치원 등) 시 회원 목록 아래에 노출
 const qrCardItem: NavItem = { href: "/admin/residents/cards", label: "QR 카드 인쇄", icon: QrCode };
 
-// 학원 모드에서만: 회원 목록(·QR 카드 인쇄) 아래 반별 현황, 도서 등록 아래 일괄 등록·AR 정보 입력
+// 학원 모드에서만: 회원 목록(·QR 카드 인쇄) 아래 반별 현황, 도서 등록 아래 일괄 등록·AR 정보 입력, 로고 인쇄 아래 레벨 라벨 인쇄
 const academyClassItem: NavItem = { href: "/admin/academy/classes", label: "반별 현황", icon: School };
 const academyBookItems: NavItem[] = [
   { href: "/admin/academy/import", label: "일괄 등록", icon: FileSpreadsheet },
   { href: "/admin/academy/ar-missing", label: "AR 정보 입력", icon: GraduationCap },
 ];
+const academyLabelItem: NavItem = { href: "/admin/academy/level-labels", label: "레벨 라벨 인쇄", icon: Tags };
 
 // 서재 관리 페이지에서는 데스크톱에서도 사이드바를 접음
 const COLLAPSED_PATHS = ["/admin/books/new"];
@@ -94,6 +95,7 @@ export function AdminSidebar() {
         if (!("href" in item)) return [item];
         if (item.href === classAnchor) return [item, academyClassItem];
         if (item.href === "/admin/books/new") return [item, ...academyBookItems];
+        if (item.href === "/admin/books/logo-print") return [item, academyLabelItem];
         return [item];
       })
     : baseItems;

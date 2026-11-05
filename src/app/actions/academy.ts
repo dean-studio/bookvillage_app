@@ -5,10 +5,11 @@
 // 아파트·학교·마을·유치원 사이트에서는 아무것도 읽거나 바꾸지 않고 거절한다.
 
 import { supabaseAdmin } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 import { getCurrentUser } from './auth'
 import { createCardMember } from './member-cards'
 import { createBook, checkBarcodeExists, generateBarcodes } from './books'
-import { isAcademy } from '@/lib/site-mode'
+import { isAcademy, isFlagOn } from '@/lib/site-mode'
 import { parseGroups, isMemberCardCode } from '@/lib/member-card'
 import { getKSTDateString } from '@/lib/date'
 import { searchBookByISBN } from '@/lib/kakao'
@@ -997,4 +998,512 @@ export async function saveArBatch(items: ArBatchItem[]): Promise<ActionResult<{ 
     results.push({ index, ok: true, message: '저장됨', count: count ?? 0 })
   }
   return { success: true, data: { results } }
+}
+
+// ─────────────────────────────────────────────
+// 3단계: AR 퀴즈 통과 기록·포인트 랭킹·레벨 라벨
+// 학원 모드 + 설정 ar_enabled === 'on' 일 때만 쓴다. 젤리·quiz_attempts·rentals 는 읽기만 하고 바꾸지 않는다.
+// ─────────────────────────────────────────────
+
+const AR_OFF = 'AR 정보 사용(관리 → AR 설정)이 켜져 있을 때만 쓸 수 있습니다.'
+
+/** 학원 모드 + ar_enabled === 'on' 확인 (관리자) */
+async function requireAcademyArAdmin(): Promise<{ ok: true; userId: string } | { ok: false; error: string }> {
+  const auth = await requireAcademyAdmin()
+  if (!auth.ok) return auth
+  const { data } = await supabaseAdmin
+    .from('library_settings')
+    .select('value')
+    .eq('key', 'ar_enabled')
+    .maybeSingle()
+  if (!isFlagOn({ ar_enabled: data?.value }, 'ar_enabled')) return { ok: false, error: AR_OFF }
+  return auth
+}
+
+function toNum(v: number | string | null | undefined): number | null {
+  if (v === null || v === undefined || v === '') return null
+  const n = Number(v)
+  return Number.isFinite(n) ? n : null
+}
+
+/** 포인트 합계: 소수 첫째 자리까지 (부동소수 오차 정리) */
+function round1(n: number): number {
+  return Math.round(n * 10) / 10
+}
+
+/** 'YYYY-MM-DD' (KST) → 그날 0시/끝의 timestamptz 문자열 */
+function kstDayStart(d: string): string {
+  return `${d}T00:00:00+09:00`
+}
+function kstDayEnd(d: string): string {
+  return `${d}T23:59:59.999+09:00`
+}
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+export type ArPassRecord = {
+  id: string
+  points: number
+  words: number | null
+  created_at: string | null
+}
+
+type BookArInfo = { title: string; barcode: string; ar_level: number | null; ar_points: number | null; word_count: number | null }
+
+function readBookAr(b: unknown): BookArInfo {
+  const x = (b ?? {}) as Partial<Record<keyof BookArInfo, unknown>>
+  return {
+    title: typeof x.title === 'string' ? x.title : '',
+    barcode: typeof x.barcode === 'string' ? x.barcode : '',
+    ar_level: toNum(x.ar_level as number | null),
+    ar_points: toNum(x.ar_points as number | null),
+    word_count: toNum(x.word_count as number | null),
+  }
+}
+
+/**
+ * AR 퀴즈 통과 기록. 선생님이 체크한다(젤리와 연결 안 함).
+ * - rentalId 를 주면 그 대출의 학생·책으로 기록한다 (반납 화면·반별 현황).
+ * - 같은 학생·같은 책은 1번만: 이미 있으면 새로 만들지 않고 기존 기록을 돌려준다(already: true).
+ * - 포인트·단어 수는 지금 책의 ar_points·word_count 를 복사해 둔다(나중에 책 정보가 바뀌어도 기록은 그대로).
+ */
+export async function recordArPass(rentalId: string): Promise<ActionResult<{ record: ArPassRecord; already: boolean; noPoints: boolean }>> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  if (typeof rentalId !== 'string' || !rentalId) return { success: false, error: '대출 기록이 올바르지 않습니다.' }
+  const { data: rental } = await supabaseAdmin
+    .from('rentals')
+    .select('id, user_id, book_id')
+    .eq('id', rentalId)
+    .maybeSingle()
+  if (!rental) return { success: false, error: '대출 기록을 찾을 수 없습니다.' }
+
+  const { data: student } = await supabaseAdmin.from('profiles').select('id, role, is_guest').eq('id', rental.user_id).maybeSingle()
+  if (!student || student.role !== 'resident' || student.is_guest) return { success: false, error: '학생 회원의 대출만 기록할 수 있습니다.' }
+
+  const { data: book } = await supabaseAdmin
+    .from('books')
+    .select('id, ar_points, word_count')
+    .eq('id', rental.book_id)
+    .maybeSingle()
+  if (!book) return { success: false, error: '책을 찾을 수 없습니다.' }
+
+  const findExisting = async () => {
+    const { data } = await supabaseAdmin
+      .from('ar_results')
+      .select('id, points, words, created_at')
+      .eq('user_id', rental.user_id)
+      .eq('book_id', book.id)
+      .maybeSingle()
+    return data
+  }
+
+  const existing = await findExisting()
+  if (existing) {
+    return { success: true, data: { record: { ...existing, points: Number(existing.points) || 0 }, already: true, noPoints: false } }
+  }
+
+  const points = toNum(book.ar_points)
+  const { data: inserted, error } = await supabaseAdmin
+    .from('ar_results')
+    .insert({
+      user_id: rental.user_id,
+      book_id: book.id,
+      rental_id: rental.id,
+      passed: true,
+      points: points === null ? 0 : round1(points),
+      words: toNum(book.word_count),
+      recorded_by: auth.userId,
+    })
+    .select('id, points, words, created_at')
+    .single()
+
+  if (error || !inserted) {
+    // 동시에 두 번 눌러 유니크 인덱스(user_id, book_id)에 걸린 경우 = 이미 기록됨
+    if (error?.code === '23505') {
+      const again = await findExisting()
+      if (again) return { success: true, data: { record: { ...again, points: Number(again.points) || 0 }, already: true, noPoints: false } }
+    }
+    return { success: false, error: 'AR 통과 기록에 실패했습니다.' }
+  }
+  return { success: true, data: { record: { ...inserted, points: Number(inserted.points) || 0 }, already: false, noPoints: points === null } }
+}
+
+/** AR 통과 기록 취소(삭제) */
+export async function cancelArPass(resultId: string): Promise<ActionResult> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  if (typeof resultId !== 'string' || !resultId) return { success: false, error: '기록이 올바르지 않습니다.' }
+  const { error, count } = await supabaseAdmin.from('ar_results').delete({ count: 'exact' }).eq('id', resultId)
+  if (error) return { success: false, error: '취소에 실패했습니다.' }
+  if ((count ?? 0) === 0) return { success: false, error: '이미 취소된 기록입니다.' }
+  return { success: true }
+}
+
+export type ArReturnItem = {
+  rental_id: string
+  book_id: string
+  title: string
+  ar_level: number | null
+  ar_points: number | null
+  returned_at: string
+  /** 통과 기록 (없으면 null) */
+  result: ArPassRecord | null
+}
+
+/** 기존 통과 기록: (user_id, book_id) → 기록 */
+async function fetchArResultMap(userIds: string[], bookIds?: string[]): Promise<Map<string, ArPassRecord>> {
+  const map = new Map<string, ArPassRecord>()
+  for (const ids of chunk(userIds, 100)) {
+    for (let from = 0; ; from += PAGE) {
+      let q = supabaseAdmin
+        .from('ar_results')
+        .select('id, user_id, book_id, points, words, created_at')
+        .in('user_id', ids)
+      if (bookIds) q = q.in('book_id', bookIds)
+      const { data } = await q.order('id').range(from, from + PAGE - 1)
+      for (const r of data ?? []) {
+        if (r.book_id) map.set(`${r.user_id}:${r.book_id}`, { id: r.id, points: Number(r.points) || 0, words: r.words, created_at: r.created_at })
+      }
+      if (!data || data.length < PAGE) break
+    }
+  }
+  return map
+}
+
+/**
+ * 반별 현황용: 학생들의 최근 반납한 책(기본 30일, 학생마다 최신 5권)과 AR 통과 여부.
+ * 반환: user_id → 목록
+ */
+export async function getRecentReturnsForAr(
+  userIds: string[],
+  days = 30
+): Promise<ActionResult<{ byUser: Record<string, ArReturnItem[]> }>> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  const ids = [...new Set((userIds ?? []).filter((x) => typeof x === 'string' && x))]
+  if (ids.length === 0) return { success: true, data: { byUser: {} } }
+  if (ids.length > MAX_IMPORT_ROWS) return { success: false, error: `한 번에 ${MAX_IMPORT_ROWS}명까지 볼 수 있습니다.` }
+  const span = Number.isInteger(days) && days > 0 && days <= 365 ? days : 30
+  const since = new Date(Date.now() - span * 24 * 60 * 60 * 1000).toISOString()
+
+  try {
+    const rows: { id: string; user_id: string; book_id: string; returned_at: string; book: unknown }[] = []
+    for (const part of chunk(ids, 200)) {
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabaseAdmin
+          .from('rentals')
+          .select('id, user_id, book_id, returned_at, book:books(title, barcode, ar_level, ar_points, word_count)')
+          .in('user_id', part)
+          .not('returned_at', 'is', null)
+          .gte('returned_at', since)
+          .order('returned_at', { ascending: false })
+          .order('id')
+          .range(from, from + PAGE - 1)
+        if (error) throw new Error(error.message)
+        for (const r of data ?? []) if (r.returned_at) rows.push({ ...r, returned_at: r.returned_at })
+        if (!data || data.length < PAGE) break
+      }
+    }
+
+    const byUser: Record<string, ArReturnItem[]> = {}
+    const seen = new Set<string>() // 같은 책을 여러 번 빌렸으면 최근 1번만
+    for (const r of rows.sort((a, b) => b.returned_at.localeCompare(a.returned_at))) {
+      const key = `${r.user_id}:${r.book_id}`
+      if (seen.has(key)) continue
+      const list = (byUser[r.user_id] ??= [])
+      if (list.length >= 5) continue
+      seen.add(key)
+      const b = readBookAr(r.book)
+      list.push({ rental_id: r.id, book_id: r.book_id, title: b.title, ar_level: b.ar_level, ar_points: b.ar_points, returned_at: r.returned_at, result: null })
+    }
+
+    const bookIds = [...new Set(Object.values(byUser).flatMap((l) => l.map((x) => x.book_id)))]
+    if (bookIds.length > 0) {
+      // 책 id 까지 URL 에 넣으면 길어지므로 학생 기준으로만 읽는다 (학생 1명의 통과 기록은 많아야 수백 건)
+      const results = await fetchArResultMap(Object.keys(byUser))
+      for (const [userId, list] of Object.entries(byUser)) {
+        for (const item of list) item.result = results.get(`${userId}:${item.book_id}`) ?? null
+      }
+    }
+    return { success: true, data: { byUser } }
+  } catch {
+    return { success: false, error: '최근 반납한 책을 불러오지 못했습니다.' }
+  }
+}
+
+export type ArReturnTarget = {
+  rental_id: string
+  user_name: string
+  title: string
+  ar_level: number | null
+  ar_points: number | null
+  word_count: number | null
+  result: ArPassRecord | null
+}
+
+/** 반납 화면용: 방금 반납한 책(바코드)의 가장 최근 반납 기록과 AR 통과 여부. 학생 대출이 아니면 null */
+export async function getReturnedRentalForAr(barcode: string): Promise<ActionResult<ArReturnTarget | null>> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  const code = typeof barcode === 'string' ? barcode.trim() : ''
+  if (!code) return { success: true, data: null }
+
+  const { data: book } = await supabaseAdmin
+    .from('books')
+    .select('id, title, ar_level, ar_points, word_count')
+    .eq('barcode', code)
+    .eq('is_deleted', false)
+    .maybeSingle()
+  if (!book) return { success: true, data: null }
+
+  const { data: rental } = await supabaseAdmin
+    .from('rentals')
+    .select('id, user_id')
+    .eq('book_id', book.id)
+    .not('returned_at', 'is', null)
+    .order('returned_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!rental) return { success: true, data: null }
+
+  const { data: student } = await supabaseAdmin.from('profiles').select('name, role, is_guest').eq('id', rental.user_id).maybeSingle()
+  if (!student || student.role !== 'resident' || student.is_guest) return { success: true, data: null }
+
+  const results = await fetchArResultMap([rental.user_id], [book.id])
+  return {
+    success: true,
+    data: {
+      rental_id: rental.id,
+      user_name: student.name,
+      title: book.title,
+      ar_level: toNum(book.ar_level),
+      ar_points: toNum(book.ar_points),
+      word_count: toNum(book.word_count),
+      result: results.get(`${rental.user_id}:${book.id}`) ?? null,
+    },
+  }
+}
+
+export type ArPassedBook = ArPassRecord & {
+  book_id: string | null
+  title: string
+  ar_level: number | null
+}
+
+export type ArStudentSummary = {
+  passedCount: number
+  totalPoints: number
+  totalWords: number
+  items: ArPassedBook[]
+}
+
+async function buildArSummary(userId: string): Promise<ArStudentSummary> {
+  const items: ArPassedBook[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabaseAdmin
+      .from('ar_results')
+      .select('id, book_id, points, words, created_at, passed, book:books(title, ar_level)')
+      .eq('user_id', userId)
+      .order('created_at', { ascending: false })
+      .order('id')
+      .range(from, from + PAGE - 1)
+    if (error) throw new Error(error.message)
+    for (const r of data ?? []) {
+      if (r.passed === false) continue
+      const b = (r.book ?? {}) as { title?: string; ar_level?: number | null }
+      items.push({
+        id: r.id,
+        book_id: r.book_id,
+        points: Number(r.points) || 0,
+        words: r.words,
+        created_at: r.created_at,
+        title: b.title ?? '(삭제된 책)',
+        ar_level: toNum(b.ar_level ?? null),
+      })
+    }
+    if (!data || data.length < PAGE) break
+  }
+  return {
+    passedCount: items.length,
+    totalPoints: round1(items.reduce((s, x) => s + x.points, 0)),
+    totalWords: items.reduce((s, x) => s + (x.words ?? 0), 0),
+    items,
+  }
+}
+
+/** 회원 상세 학원 정보 카드: 통과 권수·누적 포인트·단어 수와 통과 목록 */
+export async function getStudentArSummary(userId: string): Promise<ActionResult<ArStudentSummary>> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+  if (typeof userId !== 'string' || !userId) return { success: false, error: '학생이 올바르지 않습니다.' }
+  try {
+    return { success: true, data: await buildArSummary(userId) }
+  } catch {
+    return { success: false, error: 'AR 통과 기록을 불러오지 못했습니다.' }
+  }
+}
+
+export type ArRankItem = {
+  user_id: string
+  name: string
+  group: string
+  points: number
+  passed: number
+  words: number
+}
+
+/**
+ * AR 포인트 랭킹: 기간(KST 날짜, 통과 기록한 날 기준) 포인트 합·통과 권수. group 을 주면 그 반만.
+ * 반 목록(classes)도 함께 돌려준다(반 필터용).
+ */
+export async function getArPointRanking(params: { startDate: string; endDate: string; group?: string; limit?: number }): Promise<
+  ActionResult<{ items: ArRankItem[]; classes: string[] }>
+> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  const { startDate, endDate } = params ?? ({} as { startDate: string; endDate: string })
+  if (!DATE_RE.test(startDate ?? '') || !DATE_RE.test(endDate ?? '')) return { success: false, error: '기간을 확인해 주세요.' }
+  const limit = Number.isInteger(params.limit) && (params.limit as number) > 0 ? Math.min(params.limit as number, 500) : 100
+  const group = typeof params.group === 'string' ? params.group : undefined
+
+  try {
+    const totals = new Map<string, { points: number; passed: number; words: number }>()
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabaseAdmin
+        .from('ar_results')
+        .select('user_id, points, words')
+        .eq('passed', true)
+        .gte('created_at', kstDayStart(startDate))
+        .lte('created_at', kstDayEnd(endDate))
+        .order('id')
+        .range(from, from + PAGE - 1)
+      if (error) throw new Error(error.message)
+      for (const r of data ?? []) {
+        const t = totals.get(r.user_id) ?? { points: 0, passed: 0, words: 0 }
+        t.points += Number(r.points) || 0
+        t.passed += 1
+        t.words += r.words ?? 0
+        totals.set(r.user_id, t)
+      }
+      if (!data || data.length < PAGE) break
+    }
+
+    const [groups, residents] = await Promise.all([readMemberGroups(), fetchResidents()])
+    const profileMap = new Map(residents.map((r) => [r.id, r]))
+    const classes = [...groups]
+    const collator = new Intl.Collator('ko', { numeric: true })
+    const extra = [...new Set(residents.map((r) => r.dong_ho).filter((g) => g && !groups.includes(g)))].sort(collator.compare)
+    classes.push(...extra)
+
+    const items: ArRankItem[] = []
+    for (const [userId, t] of totals) {
+      const p = profileMap.get(userId)
+      if (!p) continue // 회원(학생)이 아닌 기록은 랭킹에서 뺀다
+      if (group !== undefined && p.dong_ho !== group) continue
+      items.push({ user_id: userId, name: p.name, group: p.dong_ho, points: round1(t.points), passed: t.passed, words: t.words })
+    }
+    items.sort((a, b) => b.points - a.points || b.passed - a.passed || collator.compare(a.name, b.name))
+    return { success: true, data: { items: items.slice(0, limit), classes } }
+  } catch {
+    return { success: false, error: 'AR 포인트 랭킹을 불러오지 못했습니다.' }
+  }
+}
+
+export type LevelLabelBook = {
+  id: string
+  title: string
+  barcode: string
+  ar_level: number
+  location_group: string
+}
+
+/** 레벨 라벨 인쇄용 책 목록: AR 레벨이 있는 책만. 책장(location_group)·레벨 범위로 고른다. 최대 2000권 */
+export async function getBooksForLevelLabels(params: { shelf?: string; min?: number; max?: number }): Promise<
+  ActionResult<{ books: LevelLabelBook[]; truncated: boolean }>
+> {
+  const auth = await requireAcademyArAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  const MAX = 2000
+  const shelf = typeof params?.shelf === 'string' && params.shelf.trim() ? params.shelf.trim() : undefined
+  const min = typeof params?.min === 'number' && Number.isFinite(params.min) ? params.min : undefined
+  const max = typeof params?.max === 'number' && Number.isFinite(params.max) ? params.max : undefined
+  if (min !== undefined && max !== undefined && min > max) return { success: false, error: '레벨 범위를 확인해 주세요.' }
+
+  const books: LevelLabelBook[] = []
+  for (let from = 0; from < MAX + 1; from += PAGE) {
+    let q = supabaseAdmin
+      .from('books')
+      .select('id, title, barcode, ar_level, location_group, location_detail')
+      .eq('is_deleted', false)
+      .not('ar_level', 'is', null)
+    if (shelf) q = q.eq('location_group', shelf)
+    if (min !== undefined) q = q.gte('ar_level', min)
+    if (max !== undefined) q = q.lte('ar_level', max)
+    const { data, error } = await q
+      .order('ar_level', { ascending: true })
+      .order('title', { ascending: true })
+      .order('id')
+      .range(from, from + PAGE - 1)
+    if (error) return { success: false, error: '책 목록을 불러오지 못했습니다.' }
+    for (const b of data ?? []) {
+      const level = toNum(b.ar_level)
+      if (level === null) continue
+      books.push({ id: b.id, title: b.title, barcode: b.barcode, ar_level: level, location_group: b.location_group })
+    }
+    if (!data || data.length < PAGE) break
+  }
+  const truncated = books.length > MAX
+  return { success: true, data: { books: books.slice(0, MAX), truncated } }
+}
+
+export type MyArReading = {
+  grade: number | null
+  zpd_low: number | null
+  zpd_high: number | null
+  passedCount: number
+  totalPoints: number
+  totalWords: number
+}
+
+/**
+ * 학생 본인용(마이페이지 카드·도서 목록 "내 레벨 책" 칩): 로그인한 본인 것만 읽는다.
+ * 학원 모드 + ar_enabled 가 아니거나, 로그인 안 했거나, 학원 정보·통과 기록이 하나도 없으면 null (에러 아님).
+ */
+export async function getMyArReading(): Promise<MyArReading | null> {
+  try {
+    const { data: settings } = await supabaseAdmin
+      .from('library_settings')
+      .select('key, value')
+      .in('key', ['site_type', 'ar_enabled'])
+    const s: Record<string, string> = {}
+    for (const row of settings ?? []) s[row.key] = row.value
+    if (!isAcademy(s.site_type) || !isFlagOn(s, 'ar_enabled')) return null
+
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) return null
+
+    const [{ data: member }, { data: results }] = await Promise.all([
+      supabaseAdmin.from('academy_members').select('grade, zpd_low, zpd_high').eq('user_id', user.id).maybeSingle(),
+      supabaseAdmin.from('ar_results').select('points, words').eq('user_id', user.id).eq('passed', true).limit(5000),
+    ])
+    const list = results ?? []
+    if (!member && list.length === 0) return null
+    return {
+      grade: member?.grade ?? null,
+      zpd_low: toNum(member?.zpd_low ?? null),
+      zpd_high: toNum(member?.zpd_high ?? null),
+      passedCount: list.length,
+      totalPoints: round1(list.reduce((sum, r) => sum + (Number(r.points) || 0), 0)),
+      totalWords: list.reduce((sum, r) => sum + (r.words ?? 0), 0),
+    }
+  } catch {
+    return null
+  }
 }

@@ -16,11 +16,14 @@ import {
   ShieldCheck,
   Megaphone,
   BookHeart,
+  GraduationCap,
 } from "lucide-react";
 import { signOut } from "@/app/actions/auth";
 import { getMyPageData } from "@/app/actions/mypage";
 import { getUnreadNoticeCount } from "@/app/actions/notices";
 import { getPublicSettings } from "@/app/actions/settings";
+import { getMyArReading } from "@/app/actions/academy";
+import { isAcademy, isFlagOn } from "@/lib/site-mode";
 import { PrivacyTermsModal } from "@/components/privacy-terms-modal";
 import { useQuery } from "@tanstack/react-query";
 
@@ -45,6 +48,15 @@ export default function MyPage() {
   });
 
   const kakaoChannelId = publicSettings?.kakao_channel_id ?? "";
+
+  // 학원 모드 + AR 사용일 때만 본인 AR 독서 기록을 읽는다 (아니면 서버 호출 없음, 카드 없음)
+  const academyAr = isAcademy(publicSettings?.site_type) && isFlagOn(publicSettings, "ar_enabled");
+  const { data: arReading } = useQuery({
+    queryKey: ["myArReading"],
+    queryFn: getMyArReading,
+    enabled: academyAr,
+    staleTime: 1000 * 60,
+  });
 
   const userName = data?.userName ?? "";
   const dongHo = data?.dongHo ?? "";
@@ -186,6 +198,35 @@ export default function MyPage() {
             <p className="text-[clamp(0.95rem,2vw,1.2rem)] text-destructive font-medium">
               연체 도서 {overdueCount}권이 있습니다
             </p>
+          </div>
+        )}
+
+        {/* AR 독서 (학원 + AR 사용 + 본인 기록이 있을 때만) */}
+        {academyAr && arReading && (
+          <div className="mx-[3vw] mt-[1.5vh] rounded-lg border border-sky-300/60 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/30 px-4 py-3 space-y-2">
+            <div className="flex items-center gap-2">
+              <GraduationCap className="size-[clamp(1.1rem,2.5vw,1.4rem)] text-sky-600 shrink-0" />
+              <p className="text-[clamp(1rem,2.2vw,1.3rem)] font-semibold">AR 독서</p>
+              {(arReading.zpd_low !== null || arReading.zpd_high !== null) && (
+                <span className="ml-auto text-[clamp(0.85rem,1.8vw,1.05rem)] text-muted-foreground">
+                  내 레벨 {arReading.zpd_low === null ? "?" : arReading.zpd_low.toFixed(1)} ~ {arReading.zpd_high === null ? "?" : arReading.zpd_high.toFixed(1)}
+                </span>
+              )}
+            </div>
+            <div className="grid grid-cols-3 gap-2 text-center">
+              <div>
+                <p className="text-[clamp(1.2rem,2.8vw,1.6rem)] font-bold">{arReading.passedCount}권</p>
+                <p className="text-[clamp(0.8rem,1.7vw,1rem)] text-muted-foreground">퀴즈 통과</p>
+              </div>
+              <div>
+                <p className="text-[clamp(1.2rem,2.8vw,1.6rem)] font-bold text-sky-700 dark:text-sky-300">{arReading.totalPoints.toFixed(1)}</p>
+                <p className="text-[clamp(0.8rem,1.7vw,1rem)] text-muted-foreground">포인트</p>
+              </div>
+              <div>
+                <p className="text-[clamp(1.2rem,2.8vw,1.6rem)] font-bold">{arReading.totalWords.toLocaleString()}</p>
+                <p className="text-[clamp(0.8rem,1.7vw,1rem)] text-muted-foreground">읽은 단어</p>
+              </div>
+            </div>
           </div>
         )}
 

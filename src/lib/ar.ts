@@ -140,3 +140,25 @@ export function validateArValues(v: Partial<ArValues>): string | null {
 export function hasAnyArValue(v: Partial<ArValues>): boolean {
   return AR_FIELD_KEYS.some((k) => (v[k] ?? "").trim() !== "");
 }
+
+/**
+ * 레벨 라벨 색 띠: 레벨 정수 부분(0~6, 7 이상은 하나로)마다 한 색.
+ * 인쇄용이라 화면 테마와 관계없이 고정 색(hex)을 쓴다.
+ */
+export const AR_LEVEL_BANDS: { key: string; label: string; min: number; max?: number; color: string; text: string }[] = [
+  { key: "0", label: "0점대", min: 0, max: 0.9, color: "#f9a8d4", text: "#111827" },
+  { key: "1", label: "1점대", min: 1, max: 1.9, color: "#ef4444", text: "#ffffff" },
+  { key: "2", label: "2점대", min: 2, max: 2.9, color: "#f97316", text: "#ffffff" },
+  { key: "3", label: "3점대", min: 3, max: 3.9, color: "#facc15", text: "#111827" },
+  { key: "4", label: "4점대", min: 4, max: 4.9, color: "#22c55e", text: "#ffffff" },
+  { key: "5", label: "5점대", min: 5, max: 5.9, color: "#3b82f6", text: "#ffffff" },
+  { key: "6", label: "6점대", min: 6, max: 6.9, color: "#8b5cf6", text: "#ffffff" },
+  { key: "7", label: "7 이상", min: 7, color: "#6b7280", text: "#ffffff" },
+];
+
+/** 레벨 → 색 띠 (값이 없으면 null) */
+export function arLevelBand(level: number | string | null | undefined) {
+  const n = num(level);
+  if (n === null) return null;
+  return AR_LEVEL_BANDS.find((b) => n >= b.min && (b.max === undefined || n <= b.max + 0.05)) ?? AR_LEVEL_BANDS[AR_LEVEL_BANDS.length - 1];
+}

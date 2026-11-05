@@ -25,9 +25,13 @@ import {
   Candy,
   Loader2,
   Search,
+  GraduationCap,
 } from "lucide-react";
 import { getDashboardStats } from "@/app/actions/stats";
 import { getJellyRankingByPeriod } from "@/app/actions/jelly";
+import { getPublicSettings } from "@/app/actions/settings";
+import { getArPointRanking, type ArRankItem } from "@/app/actions/academy";
+import { isAcademy, isFlagOn } from "@/lib/site-mode";
 
 type DashboardData = NonNullable<Awaited<ReturnType<typeof getDashboardStats>>>;
 type JellyRankItem = Awaited<ReturnType<typeof getJellyRankingByPeriod>>[number];
@@ -61,7 +65,44 @@ export default function AdminRankingsPage() {
   const [jellyRanking, setJellyRanking] = useState<JellyRankItem[]>([]);
   const [isPending, startTransition] = useTransition();
 
+  // 학원 모드 + AR 사용(ar_enabled === 'on')일 때만 "AR 포인트" 탭. 아니면 기존 4개 탭 그대로
+  const [arTab, setArTab] = useState(false);
+  const [period, setPeriod] = useState(defaults);
+  const [arGroup, setArGroup] = useState("");
+  const [arRanking, setArRanking] = useState<ArRankItem[]>([]);
+  const [arClasses, setArClasses] = useState<string[]>([]);
+  const [arError, setArError] = useState("");
+  const [isArPending, startArTransition] = useTransition();
+
+  useEffect(() => {
+    let alive = true;
+    getPublicSettings()
+      .then((s) => {
+        if (alive) setArTab(isAcademy(s.site_type) && isFlagOn(s, "ar_enabled"));
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!arTab) return;
+    startArTransition(async () => {
+      const res = await getArPointRanking({ startDate: period.start, endDate: period.end, group: arGroup || undefined });
+      if (res.success && res.data) {
+        setArRanking(res.data.items);
+        setArClasses(res.data.classes);
+        setArError("");
+      } else {
+        setArRanking([]);
+        setArError(res.error || "AR 포인트 랭킹을 불러오지 못했습니다.");
+      }
+    });
+  }, [arTab, period, arGroup]);
+
   function fetchData(start: string, end: string) {
+    setPeriod((p) => (p.start === start && p.end === end ? p : { start, end }));
     startTransition(async () => {
       const [statsData, jellyData] = await Promise.all([
         getDashboardStats(start, end),
@@ -159,7 +200,13 @@ export default function AdminRankingsPage() {
       ) : (
         <Tabs defaultValue="readers">
           <Card>
-            <TabsList className="w-full grid grid-cols-4 !h-auto p-1.5 bg-muted/50 rounded-b-none border-b">
+            <TabsList
+              className={
+                arTab
+                  ? "w-full grid grid-cols-5 !h-auto p-1.5 bg-muted/50 rounded-b-none border-b"
+                  : "w-full grid grid-cols-4 !h-auto p-1.5 bg-muted/50 rounded-b-none border-b"
+              }
+            >
               <TabsTrigger value="readers" className="gap-1.5 py-2.5 text-sm">
                 <Trophy className="size-4" />
                 <span className="hidden sm:inline">다독왕</span>
@@ -180,6 +227,13 @@ export default function AdminRankingsPage() {
                 <span className="hidden sm:inline">젤리</span>
                 <span className="sm:hidden">젤리</span>
               </TabsTrigger>
+              {arTab && (
+                <TabsTrigger value="ar" className="gap-1.5 py-2.5 text-sm">
+                  <GraduationCap className="size-4" />
+                  <span className="hidden sm:inline">AR 포인트</span>
+                  <span className="sm:hidden">AR</span>
+                </TabsTrigger>
+              )}
             </TabsList>
 
           {/* 다독왕 */}
@@ -413,6 +467,91 @@ export default function AdminRankingsPage() {
                 )}
               </CardContent>
           </TabsContent>
+
+          {/* AR 포인트 (학원 + AR 사용일 때만) */}
+          {arTab && (
+            <TabsContent value="ar" className="mt-0">
+              <CardContent className="pt-5 space-y-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="text-sm font-medium">반</label>
+                  <select
+                    className="h-9 rounded-md border bg-background px-2 text-sm"
+                    value={arGroup}
+                    onChange={(e) => setArGroup(e.target.value)}
+                  >
+                    <option value="">전체</option>
+                    {arClasses.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  {isArPending && <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                  <span className="text-xs text-muted-foreground">선생님이 AR 퀴즈 통과를 체크한 날 기준 ({period.start} ~ {period.end})</span>
+                </div>
+                {arError ? (
+                  <p className="text-sm text-destructive text-center py-8">{arError}</p>
+                ) : arRanking.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-8">
+                    {isArPending ? "불러오는 중..." : "해당 기간에 AR 퀴즈 통과 기록이 없습니다."}
+                  </p>
+                ) : (
+                  <>
+                    <div className="hidden md:block">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-16">순위</TableHead>
+                            <TableHead>이름</TableHead>
+                            <TableHead>반</TableHead>
+                            <TableHead className="text-right">통과 권수</TableHead>
+                            <TableHead className="text-right">단어 수</TableHead>
+                            <TableHead className="text-right">포인트</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {arRanking.map((item, i) => (
+                            <TableRow
+                              key={item.user_id}
+                              className="cursor-pointer hover:bg-muted/50"
+                              onClick={() => router.push(`/admin/residents/${item.user_id}`)}
+                            >
+                              <TableCell>{getRankBadge(i + 1)}</TableCell>
+                              <TableCell className="font-medium text-primary">{item.name}</TableCell>
+                              <TableCell className="text-muted-foreground">{item.group}</TableCell>
+                              <TableCell className="text-right">{item.passed}권</TableCell>
+                              <TableCell className="text-right text-muted-foreground">{item.words.toLocaleString()}</TableCell>
+                              <TableCell className="text-right font-semibold text-sky-700 dark:text-sky-300">{item.points.toFixed(1)}pt</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="md:hidden space-y-2">
+                      {arRanking.map((item, i) => (
+                        <div
+                          key={item.user_id}
+                          className="border rounded-lg p-3 flex items-center justify-between cursor-pointer hover:bg-muted/50"
+                          onClick={() => router.push(`/admin/residents/${item.user_id}`)}
+                        >
+                          <div className="flex items-center gap-3">
+                            {getRankBadge(i + 1)}
+                            <div>
+                              <p className="text-sm font-medium text-primary">{item.name}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {item.group} · {item.passed}권
+                              </p>
+                            </div>
+                          </div>
+                          <span className="font-semibold text-sky-700 dark:text-sky-300">{item.points.toFixed(1)}pt</span>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </TabsContent>
+          )}
           </Card>
         </Tabs>
       )}

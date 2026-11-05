@@ -22,6 +22,7 @@ import {
   Search,
 } from "lucide-react";
 import { returnBook, getActiveRentals } from "@/app/actions/rentals";
+import { ReturnArPass } from "../academy/ar-pass";
 
 interface ReturnResult {
   book: { title: string; barcode: string };
@@ -335,6 +336,9 @@ export default function AdminReturnPage() {
                 </div>
               </div>
             </div>
+
+            {/* 학원 + AR 사용일 때만 그려짐 (아니면 null) */}
+            <ReturnArPass barcode={result.book.barcode} />
 
             <Button variant="outline" className="w-full h-12" onClick={() => { handleReset(); startScanning(); }}>
               다음 반납 처리 (카메라 열기)

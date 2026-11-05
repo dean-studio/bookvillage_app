@@ -23,10 +23,14 @@ import {
   moveStudentsToClass,
   setStudentsStatus,
   ensureClasses,
+  getRecentReturnsForAr,
   type AcademyClassSummary,
   type AcademyStudent,
+  type ArReturnItem,
 } from "@/app/actions/academy";
 import { AcademyGate } from "../academy-gate";
+import { ArPassButton } from "../ar-pass";
+import { useArEnabled } from "@/components/ar-fields";
 import { cn } from "@/lib/utils";
 
 function shortDate(d: string): string {
@@ -47,6 +51,11 @@ function ClassesView() {
   const [isLoading, startLoading] = useTransition();
   const [isStudentsLoading, startStudentsLoading] = useTransition();
   const [isActing, startActing] = useTransition();
+
+  // AR 사용(ar_enabled === 'on')일 때만: 학생별 최근 반납한 책 + AR 통과 체크
+  const arEnabled = useArEnabled();
+  const [returnsByUser, setReturnsByUser] = useState<Record<string, ArReturnItem[]>>({});
+  const [returnsError, setReturnsError] = useState("");
 
   // 반 이름 변경
   const [renameOpen, setRenameOpen] = useState(false);
@@ -93,6 +102,32 @@ function ClassesView() {
   useEffect(() => {
     if (selected !== null) loadStudents(selected, showInactive);
   }, [selected, showInactive, loadStudents]);
+
+  useEffect(() => {
+    // 학생이 없으면 부르지 않는다 (목록에 없는 학생의 기록은 화면에서 쓰이지 않음)
+    if (!arEnabled || students.length === 0) return;
+    let alive = true;
+    getRecentReturnsForAr(students.map((s) => s.id)).then((res) => {
+      if (!alive) return;
+      if (res.success && res.data) {
+        setReturnsByUser(res.data.byUser);
+        setReturnsError("");
+      } else {
+        setReturnsByUser({});
+        setReturnsError(res.error || "최근 반납한 책을 불러오지 못했습니다.");
+      }
+    });
+    return () => {
+      alive = false;
+    };
+  }, [arEnabled, students]);
+
+  function updateReturnResult(userId: string, rentalId: string, next: ArReturnItem["result"]) {
+    setReturnsByUser((prev) => ({
+      ...prev,
+      [userId]: (prev[userId] ?? []).map((x) => (x.rental_id === rentalId ? { ...x, result: next } : x)),
+    }));
+  }
 
   // 반을 바꾸거나 퇴원생 보기를 바꾸면 고른 학생·열린 확인창을 비운다
   function resetSelection() {
@@ -409,6 +444,8 @@ function ClassesView() {
                   </div>
                 )}
 
+                {arEnabled && returnsError && <p className="text-sm text-destructive">{returnsError}</p>}
+
                 {isStudentsLoading && students.length === 0 ? (
                   <div className="flex justify-center py-8">
                     <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -427,6 +464,7 @@ function ClassesView() {
                           <TableHead>학년</TableHead>
                           <TableHead>레벨(ZPD)</TableHead>
                           <TableHead>빌린 책 · 반납 예정일</TableHead>
+                          {arEnabled && <TableHead>최근 반납(30일) · AR 통과</TableHead>}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -474,6 +512,32 @@ function ClassesView() {
                                 </ul>
                               )}
                             </TableCell>
+                            {arEnabled && (
+                              <TableCell>
+                                {(returnsByUser[s.id] ?? []).length === 0 ? (
+                                  <span className="text-muted-foreground">-</span>
+                                ) : (
+                                  <ul className="space-y-1">
+                                    {(returnsByUser[s.id] ?? []).map((r) => (
+                                      <li key={r.rental_id} className="flex flex-wrap items-center gap-2">
+                                        <Link href={`/admin/books/${r.book_id}`} className="hover:underline">
+                                          {r.title}
+                                        </Link>
+                                        {r.ar_level !== null && (
+                                          <span className="font-mono text-xs text-muted-foreground">BL {r.ar_level.toFixed(1)}</span>
+                                        )}
+                                        <span className="text-xs text-muted-foreground">{shortDate(r.returned_at)} 반납</span>
+                                        <ArPassButton
+                                          rentalId={r.rental_id}
+                                          result={r.result}
+                                          onChange={(next) => updateReturnResult(s.id, r.rental_id, next)}
+                                        />
+                                      </li>
+                                    ))}
+                                  </ul>
+                                )}
+                              </TableCell>
+                            )}
                           </TableRow>
                         ))}
                       </TableBody>

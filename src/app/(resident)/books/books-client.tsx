@@ -11,8 +11,11 @@ import { Search, BookOpen, Loader2, ChevronLeft, ChevronRight } from "lucide-rea
 import { getBooks } from "@/app/actions/books";
 import { logSearch } from "@/app/actions/recommendations";
 import type { Book } from "@/types";
-import { ArBadge, useArEnabled } from "@/components/ar-fields";
+import { ArBadge } from "@/components/ar-fields";
 import { AR_INTERESTS, AR_LEVEL_RANGES } from "@/lib/ar";
+import { getPublicSettings } from "@/app/actions/settings";
+import { getMyArReading } from "@/app/actions/academy";
+import { isAcademy, isFlagOn } from "@/lib/site-mode";
 
 type SortValue = "recent" | "title_asc" | "title_desc" | "ar_asc" | "ar_desc";
 
@@ -24,7 +27,24 @@ export function BooksClient() {
   const [page, setPage] = useState(1);
 
   // AR 레벨 필터: 설정 ar_enabled === 'on' 일 때만 보이고 서버로 보낸다. 꺼져 있으면 기존 검색과 같음
-  const arEnabled = useArEnabled();
+  // (설정은 마이페이지·대출 화면과 같은 react-query 캐시 ["publicSettings"] 를 함께 쓴다 → 서버 호출 1번 그대로)
+  const { data: publicSettings } = useQuery({
+    queryKey: ["publicSettings"],
+    queryFn: getPublicSettings,
+    staleTime: 1000 * 60 * 10,
+  });
+  const arEnabled = isFlagOn(publicSettings, "ar_enabled");
+  // 학원 모드 + AR 사용일 때만: 내 레벨(ZPD) 읽기 → "내 레벨 책" 칩. 아니면 서버 호출 없음
+  const academyAr = arEnabled && isAcademy(publicSettings?.site_type);
+  const { data: arReading } = useQuery({
+    queryKey: ["myArReading"],
+    queryFn: getMyArReading,
+    enabled: academyAr,
+    staleTime: 1000 * 60,
+  });
+  const myZpd = academyAr && arReading && (arReading.zpd_low !== null || arReading.zpd_high !== null) ? arReading : null;
+  const [myLevel, setMyLevel] = useState(false);
+  const myLevelOn = myLevel && !!myZpd;
   const [arRange, setArRange] = useState("");
   const [arInterest, setArInterest] = useState("");
   const [availableOnly, setAvailableOnly] = useState(false);
@@ -60,14 +80,14 @@ export function BooksClient() {
   }, [search]);
 
   const hasQuery = debouncedSearch.trim().length > 0;
-  const range = arEnabled ? AR_LEVEL_RANGES.find((r) => r.key === arRange) : undefined;
-  const hasArFilter = arEnabled && (!!range || !!arInterest || availableOnly);
+  const range = arEnabled && !myLevelOn ? AR_LEVEL_RANGES.find((r) => r.key === arRange) : undefined;
+  const hasArFilter = arEnabled && (!!range || !!arInterest || availableOnly || myLevelOn);
   // AR 모드에서 영어로만 된 검색어는 단어 단위로 찾는다 (예: "magic tree"). 한글은 기존 느슨한 매칭 그대로
   const englishQuery = /^[\x20-\x7E]+$/.test(debouncedSearch.trim());
 
   const { data, isLoading, isFetching } = useQuery({
     queryKey: arEnabled
-      ? ["books", debouncedSearch, sort, page, "ar", arRange, arInterest, availableOnly]
+      ? ["books", debouncedSearch, sort, page, "ar", arRange, arInterest, availableOnly, ...(myLevelOn ? ["my", myZpd?.zpd_low, myZpd?.zpd_high] : [])]
       : ["books", debouncedSearch, sort, page],
     queryFn: () =>
       arEnabled
@@ -76,10 +96,11 @@ export function BooksClient() {
             sort,
             page,
             limit: 20,
-            arMin: range?.min,
-            arMax: range?.max,
+            // "내 레벨 책": 내 ZPD 범위 + 대출 가능만
+            arMin: myLevelOn ? (myZpd?.zpd_low ?? undefined) : range?.min,
+            arMax: myLevelOn ? (myZpd?.zpd_high ?? undefined) : range?.max,
             arInterest: arInterest || undefined,
-            available: availableOnly ? true : undefined,
+            available: availableOnly || myLevelOn ? true : undefined,
             wordSearch: englishQuery ? true : undefined,
           })
         : getBooks({
@@ -142,10 +163,20 @@ export function BooksClient() {
           <div className="mt-[1vh] space-y-2">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <span className="shrink-0 self-center text-[clamp(0.85rem,1.9vw,1.15rem)] font-semibold text-muted-foreground">레벨</span>
+              {myZpd && (
+                <button
+                  onClick={() => { setMyLevel(!myLevelOn); setArRange(""); setPage(1); }}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] font-semibold transition-colors ${
+                    myLevelOn ? "border-sky-600 bg-sky-600 text-white" : "border-sky-400 text-sky-700 dark:text-sky-300 active:bg-muted"
+                  }`}
+                >
+                  내 레벨 책 ({myZpd.zpd_low === null ? "?" : myZpd.zpd_low.toFixed(1)}~{myZpd.zpd_high === null ? "?" : myZpd.zpd_high.toFixed(1)})
+                </button>
+              )}
               {AR_LEVEL_RANGES.map((r) => (
                 <button
                   key={r.key}
-                  onClick={() => { setArRange(arRange === r.key ? "" : r.key); setPage(1); }}
+                  onClick={() => { setArRange(arRange === r.key ? "" : r.key); setMyLevel(false); setPage(1); }}
                   className={`shrink-0 rounded-full border px-3 py-1.5 text-[clamp(0.85rem,1.9vw,1.15rem)] transition-colors ${
                     arRange === r.key ? "border-primary bg-primary text-primary-foreground" : "active:bg-muted"
                   }`}
