@@ -41,6 +41,7 @@ import {
 import { getBookById, setBookFeatured, unsetBookFeatured, updateBook, deleteBook } from "@/app/actions/books";
 import { getBookRentals } from "@/app/actions/rentals";
 import { getPublicSettings } from "@/app/actions/settings";
+import { allowsLostDelete } from "@/lib/site-mode";
 import { getShelves } from "@/app/actions/shelves";
 import { uploadBookCoverImage } from "@/lib/storage";
 import type { Book } from "@/types";
@@ -67,11 +68,11 @@ export default function AdminBookDetailPage() {
   const [isSaving, startSave] = useTransition();
   const editFileRef = useRef<HTMLInputElement>(null);
 
-  // 삭제 다이얼로그 (유치원 모드: 대출 중인 책도 분실로 처리해 삭제)
+  // 삭제 다이얼로그 (유치원·학원 모드: 대출 중인 책도 분실로 처리해 삭제)
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState("");
   const [isDeleting, startDelete] = useTransition();
-  const [kindergarten, setKindergarten] = useState(false);
+  const [lostDeleteAllowed, setLostDeleteAllowed] = useState(false);
 
   function loadBook() {
     startTransition(async () => {
@@ -89,7 +90,7 @@ export default function AdminBookDetailPage() {
     getShelves().then((data) => {
       setShelfNames((data as { name: string; type: string }[]).filter((s) => s.type !== "label").map((s) => s.name));
     });
-    getPublicSettings().then((s) => setKindergarten(s.site_type === "kindergarten"));
+    getPublicSettings().then((s) => setLostDeleteAllowed(allowsLostDelete(s.site_type)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bookId]);
 
@@ -422,7 +423,7 @@ export default function AdminBookDetailPage() {
             const rented = rentals.some((r) => !r.returned_at);
             const cancel = (
               <Button variant="outline" className="flex-1 h-12" onClick={() => setDeleteOpen(false)} disabled={isDeleting}>
-                {rented && !kindergarten ? "닫기" : "취소"}
+                {rented && !lostDeleteAllowed ? "닫기" : "취소"}
               </Button>
             );
             return (
@@ -431,7 +432,7 @@ export default function AdminBookDetailPage() {
                   <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
                     <AlertCircle className="size-5 text-destructive shrink-0 mt-0.5" />
                     <p className="text-base text-destructive">
-                      {kindergarten ? (
+                      {lostDeleteAllowed ? (
                         <>
                           &quot;{book.title}&quot;은(는) 지금 대출 중이에요.
                           <br />
@@ -448,7 +449,7 @@ export default function AdminBookDetailPage() {
                 {deleteError && <p className="text-sm text-destructive">{deleteError}</p>}
                 <div className="flex gap-3">
                   {cancel}
-                  {(!rented || kindergarten) && (
+                  {(!rented || lostDeleteAllowed) && (
                     <Button variant="destructive" className="flex-1 h-12" onClick={() => handleDelete(rented)} disabled={isDeleting}>
                       {isDeleting ? <Loader2 className="size-4 mr-1 animate-spin" /> : <Trash2 className="size-4 mr-1" />}
                       {rented ? "분실 처리 후 삭제" : "삭제"}

@@ -109,7 +109,7 @@ export async function POST(request: Request) {
     { key: 'max_rentals', value: '5', description: '1인당 최대 대출 권수' },
     { key: 'rental_days', value: '14', description: '기본 대출 기간 (일)' },
     { key: 'site_name', value: '우리 도서관', description: '도서관 이름' },
-    { key: 'site_type', value: 'apartment', description: '사이트 유형 (apartment/school/village)' },
+    { key: 'site_type', value: 'apartment', description: '사이트 유형 (apartment/school/village/kindergarten/academy)' },
     { key: 'color_theme', value: 'yellow', description: '컬러 테마' },
   ].filter((s) => !existingKeys.has(s.key))
 

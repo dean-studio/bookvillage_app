@@ -20,9 +20,9 @@ function formatDue(date: string) {
   return new Date(date).toLocaleDateString("ko-KR", { timeZone: "Asia/Seoul", month: "long", day: "numeric", weekday: "short" });
 }
 
-// 홈 화면 리더기 대출(유치원 등): 대여하기 화면 가운데에서
+// 홈 화면 리더기 대출(유치원·학원 등): 대여하기 화면 가운데에서
 // 회원카드 찍기 → 책 바코드 찍기 → 자동 대출 → 일정 시간 후 자동 로그아웃
-// 반납(유치원 모드만): 대출 중인 책 바코드를 찍으면 카드 없이도 바로 반납
+// 반납(유치원·학원 모드만, allowsKioskReturn): 대출 중인 책 바코드를 찍으면 카드 없이도 바로 반납
 export function KioskPanel({
   logoutSec,
   allowReturn,
@@ -30,7 +30,7 @@ export function KioskPanel({
   onSignedOut,
 }: {
   logoutSec: number;
-  /** 유치원 모드: 책 바코드를 찍으면 반납도 받음 */
+  /** 유치원·학원 모드: 책 바코드를 찍으면 반납도 받음 */
   allowReturn: boolean;
   /** 도서 정보/검색 등 오버레이가 열려 있으면 리더기 입력을 받지 않음 */
   scannerEnabled: boolean;

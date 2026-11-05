@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { createBookSchema, updateBookSchema } from '@/lib/validations/books'
 import { getCurrentUser } from '@/app/actions/auth'
+import { allowsLostDelete } from '@/lib/site-mode'
 import type { ActionResult } from '@/types'
 import type { Book } from '@/types'
 
@@ -347,7 +348,7 @@ export async function getBookRentalCount(bookId: string): Promise<{ total: numbe
   return { total: total ?? 0, active: active ?? 0 }
 }
 
-// lost: 대출 중인 책을 분실로 보고 대출을 끝낸 뒤 삭제 (반납 절차 없이, 유치원 모드만)
+// lost: 대출 중인 책을 분실로 보고 대출을 끝낸 뒤 삭제 (반납 절차 없이, 유치원·학원 모드만 = allowsLostDelete)
 export async function deleteBook(bookId: string, options?: { lost?: boolean }): Promise<ActionResult> {
   const user = await getCurrentUser()
   if (!user || user.role !== 'admin') {
@@ -369,7 +370,7 @@ export async function deleteBook(bookId: string, options?: { lost?: boolean }): 
       .select('value')
       .eq('key', 'site_type')
       .maybeSingle()
-    if (!options?.lost || siteType?.value !== 'kindergarten') {
+    if (!options?.lost || !allowsLostDelete(siteType?.value)) {
       return { success: false, error: '현재 대출 중인 도서는 삭제할 수 없습니다.' }
     }
     const { error: returnError } = await supabaseAdmin

@@ -32,6 +32,7 @@ import { getPublicSettings } from "@/app/actions/settings";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { KioskPanel } from "./kiosk-panel";
+import { allowsKioskReturn } from "@/lib/site-mode";
 
 type PopularSearch = { query: string; count: number };
 
@@ -529,7 +530,7 @@ export default function RentPage() {
             ) : kioskMode ? (
               <KioskPanel
                 logoutSec={kioskLogoutSec}
-                allowReturn={publicSettings?.site_type === "kindergarten"}
+                allowReturn={allowsKioskReturn(publicSettings?.site_type)}
                 scannerEnabled={!scanning && !searchOpen && !book && !dupConfirm && checkoutStep === "idle"}
                 onSignedOut={handleKioskSignedOut}
               />

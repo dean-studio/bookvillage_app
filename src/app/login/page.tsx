@@ -9,17 +9,31 @@ import { signInByDongHo, signUp, checkPhoneExists } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
 import { PrivacyTermsModal } from "@/components/privacy-terms-modal";
 import { CardLogin } from "./card-login";
+import { normalizeSiteType, type SiteType } from "@/lib/site-mode";
 import { Loader2, ChevronLeft, Check, ShieldCheck, BellRing, Gift, Lock } from "lucide-react";
 
 const PIN_LENGTH = 4;
 
-type SiteType = "apartment" | "school" | "village";
+// 로그인·가입 입력 흐름 (사이트 유형과 다름: 유치원·학원은 마을 흐름을 쓰고 라벨만 '반')
+type LoginFlow = "apartment" | "school" | "village";
+
+function toLoginFlow(siteType: SiteType): { flow: LoginFlow; villageLabel: string | null } {
+  switch (siteType) {
+    case "apartment": return { flow: "apartment", villageLabel: null };
+    case "school": return { flow: "school", villageLabel: null };
+    case "village": return { flow: "village", villageLabel: null };
+    case "kindergarten":
+    case "academy":
+      return { flow: "village", villageLabel: "반" };
+    default: return { flow: "apartment", villageLabel: null };
+  }
+}
 
 type LoginStep = "l-dong" | "l-ho" | "pin";
 type SignupStep = "s-terms" | "s-name" | "s-phone" | "s-dong" | "s-ho" | "s-pin" | "s-pin-confirm" | "s-confirm";
 type Step = LoginStep | SignupStep;
 
-const SIGNUP_STEPS_MAP: Record<SiteType, SignupStep[]> = {
+const SIGNUP_STEPS_MAP: Record<LoginFlow, SignupStep[]> = {
   apartment: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-pin-confirm", "s-confirm"],
   school: ["s-terms", "s-name", "s-phone", "s-dong", "s-ho", "s-pin", "s-pin-confirm", "s-confirm"],
   village: ["s-terms", "s-name", "s-phone", "s-dong", "s-pin", "s-pin-confirm", "s-confirm"],
@@ -36,11 +50,11 @@ export default function LoginPage() {
   const [dong, setDong] = useState("");
   const [ho, setHo] = useState("");
 
-  const [siteType, setSiteType] = useState<SiteType>("apartment");
+  const [siteType, setSiteType] = useState<LoginFlow>("apartment");
   const [apartmentName, setApartmentName] = useState("");
   const [logoUrl, setLogoUrl] = useState("");
   const [kakaoChannelId, setKakaoChannelId] = useState("");
-  // 유치원 유형은 마을(텍스트 1칸) 입력 흐름을 쓰고 라벨만 '반'
+  // 유치원·학원 유형은 마을(텍스트 1칸) 입력 흐름을 쓰고 라벨만 '반'
   const [villageLabel, setVillageLabel] = useState("지번");
   const [loginMethod, setLoginMethod] = useState("pin");
   const [settingsLoaded, setSettingsLoaded] = useState(false);
@@ -53,18 +67,15 @@ export default function LoginPage() {
   const [isPending, startTransition] = useTransition();
   const router = useRouter();
 
-  const signupSteps = SIGNUP_STEPS_MAP[siteType];
+  const signupSteps = SIGNUP_STEPS_MAP[siteType] ?? SIGNUP_STEPS_MAP.apartment;
 
   useEffect(() => {
     getPublicSettings().then((settings) => {
       if (settings.apartment_name) setApartmentName(settings.apartment_name);
       if (settings.logo_url) setLogoUrl(settings.logo_url);
-      if (settings.site_type === "kindergarten") {
-        setSiteType("village");
-        setVillageLabel("반");
-      } else if (settings.site_type) {
-        setSiteType(settings.site_type as SiteType);
-      }
+      const { flow, villageLabel: label } = toLoginFlow(normalizeSiteType(settings.site_type));
+      setSiteType(flow);
+      if (label) setVillageLabel(label);
       if (settings.login_method) setLoginMethod(settings.login_method);
       if (settings.signup_mode === "admin_only") resetToLogin();
       // 홈 화면 리더기 모드에서는 대여하기 화면에서 카드로 로그인
@@ -276,6 +287,7 @@ export default function LoginPage() {
       case "apartment": return `${dong}동 ${ho}호`;
       case "school": return `${dong}학년 ${ho}반`;
       case "village": return dong;
+      default: return dong;
     }
   }
 
@@ -321,6 +333,7 @@ export default function LoginPage() {
       case "apartment": return "동";
       case "school": return "학년";
       case "village": return villageLabel;
+      default: return villageLabel;
     }
   }
 
@@ -341,8 +354,8 @@ export default function LoginPage() {
           case "apartment": return "동을 입력하세요";
           case "school": return "학년을 입력하세요";
           case "village": return `${villageLabel}을 입력하세요`;
+          default: return `${villageLabel}을 입력하세요`;
         }
-        break;
       case "l-ho":
       case "s-ho":
         return siteType === "school" ? "반을 입력하세요" : "호수를 입력하세요";
@@ -352,8 +365,8 @@ export default function LoginPage() {
       case "s-pin": return "비밀번호 4자리를 설정하세요";
       case "s-pin-confirm": return "비밀번호를 한 번 더 입력하세요";
       case "s-confirm": return "입력한 정보를 확인해주세요";
+      default: return "";
     }
-    return "";
   }
 
   const hasNextButton =

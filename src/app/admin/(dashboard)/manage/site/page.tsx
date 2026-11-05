@@ -37,6 +37,7 @@ const NAME_LABELS: Record<string, { label: string; placeholder: string }> = {
   school: { label: "학교 이름", placeholder: "예: 책마을초등학교" },
   village: { label: "마을 이름", placeholder: "예: 책마을" },
   kindergarten: { label: "유치원 이름", placeholder: "예: 책마을유치원" },
+  academy: { label: "학원 이름", placeholder: "예: 책마을영어학원" },
 };
 
 export default function SiteSettingsPage() {

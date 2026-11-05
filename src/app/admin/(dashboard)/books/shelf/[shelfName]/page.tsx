@@ -33,6 +33,7 @@ import { getShelfBooks } from "@/app/actions/shelves";
 import { createBook, updateBook, deleteBook, checkBarcodeExists, getBookRentalCount, generateBarcodes } from "@/app/actions/books";
 import { getCurrentUser } from "@/app/actions/auth";
 import { getPublicSettings } from "@/app/actions/settings";
+import { allowsLostDelete } from "@/lib/site-mode";
 import { uploadBookCoverImage } from "@/lib/storage";
 import { hangulToLatinKeys } from "@/lib/utils";
 
@@ -106,10 +107,10 @@ export default function ShelfBooksPage() {
     getCurrentUser().then((u) => { if (u?.name) setAdminName(u.name); });
   }, []);
 
-  // 유치원 모드: 대출 중인 책도 분실로 처리해 삭제 가능
-  const [kindergarten, setKindergarten] = useState(false);
+  // 유치원·학원 모드: 대출 중인 책도 분실로 처리해 삭제 가능
+  const [lostDeleteAllowed, setLostDeleteAllowed] = useState(false);
   useEffect(() => {
-    getPublicSettings().then((s) => setKindergarten(s.site_type === "kindergarten"));
+    getPublicSettings().then((s) => setLostDeleteAllowed(allowsLostDelete(s.site_type)));
   }, []);
 
   // Manual entry mode (ISBN 없는 도서)
@@ -1502,7 +1503,7 @@ export default function ShelfBooksPage() {
                 <>
                   <div className="flex items-start gap-2 rounded-lg border border-destructive/50 bg-destructive/10 p-4">
                     <AlertCircle className="size-5 text-destructive shrink-0 mt-0.5" />
-                    {kindergarten ? (
+                    {lostDeleteAllowed ? (
                       <p className="text-base text-destructive">
                         &quot;{deleteTarget.title}&quot;은(는) 지금 대출 중이에요.
                         <br />
@@ -1514,7 +1515,7 @@ export default function ShelfBooksPage() {
                       </p>
                     )}
                   </div>
-                  {kindergarten ? (
+                  {lostDeleteAllowed ? (
                     <div className="flex gap-3">
                       <Button variant="outline" className="flex-1 h-14 text-lg" onClick={() => { setDeleteTarget(null); setDeleteRentalInfo(null); }}>취소</Button>
                       <Button variant="destructive" className="flex-1 h-14 text-lg" onClick={() => handleDelete(true)} disabled={isDeleting}>
