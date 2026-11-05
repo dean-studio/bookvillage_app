@@ -41,7 +41,9 @@ export function readArFields(formData: FormData): Partial<Record<ArFieldKey, unk
     } else if (key === 'ar_interest' || key === 'lexile') {
       out[key] = raw.toUpperCase()
     } else {
-      out[key] = Number(raw.replace(/,/g, ''))
+      const n = Number(raw.replace(/,/g, ''))
+      // 레벨·포인트는 DB가 소수 첫째 자리까지라 미리 맞춘다 (3.55 → 3.6). 입력값과 저장값이 달라 보이지 않게
+      out[key] = (key === 'ar_level' || key === 'ar_points') && Number.isFinite(n) ? Math.round(n * 10) / 10 : n
     }
   }
   return out

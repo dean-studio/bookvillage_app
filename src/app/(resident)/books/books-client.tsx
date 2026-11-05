@@ -61,7 +61,7 @@ export function BooksClient() {
 
   const hasQuery = debouncedSearch.trim().length > 0;
   const range = arEnabled ? AR_LEVEL_RANGES.find((r) => r.key === arRange) : undefined;
-  const hasArFilter = arEnabled && (!!range || !!arInterest);
+  const hasArFilter = arEnabled && (!!range || !!arInterest || availableOnly);
   // AR 모드에서 영어로만 된 검색어는 단어 단위로 찾는다 (예: "magic tree"). 한글은 기존 느슨한 매칭 그대로
   const englishQuery = /^[\x20-\x7E]+$/.test(debouncedSearch.trim());
 
