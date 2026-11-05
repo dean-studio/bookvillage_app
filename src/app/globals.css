@@ -220,6 +220,16 @@
   gap: 1.25rem;
 }
 
+/* 홈 화면 추가 권유 (components/install-prompt.tsx) */
+@keyframes install-down { from { transform: translateY(-120%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes install-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes install-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes install-bounce { 0%, 100% { transform: translate(-50%, 0); } 50% { transform: translate(-50%, 6px); } }
+.install-slide-down { animation: install-down 0.45s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.install-slide-up { animation: install-up 0.35s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.install-fade { animation: install-fade 0.3s ease both; }
+.install-bounce { animation: install-bounce 1s ease-in-out infinite; }
+
 /* 월별 신간 인쇄 미리보기: A4 인쇄 영역(200×277mm) */
 .newbook-page {
   width: 200mm;
@@ -346,6 +356,12 @@
     border-radius: 0 !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
+    break-after: page;
+    page-break-after: always;
+  }
+  .newbook-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
   .newbook-badge {
     -webkit-print-color-adjust: exact !important;

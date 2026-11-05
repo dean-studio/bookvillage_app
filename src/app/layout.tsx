@@ -89,11 +89,15 @@ export default async function RootLayout({
       data-theme={settings.color_theme || "yellow"}
       style={styleString ? (Object.fromEntries(Object.entries(lightVars)) as React.CSSProperties) : undefined}
     >
-      {darkStyleString && (
-        <head>
-          <style dangerouslySetInnerHTML={{ __html: `.dark{${darkStyleString}}` }} />
-        </head>
-      )}
+      <head>
+        {darkStyleString && <style dangerouslySetInnerHTML={{ __html: `.dark{${darkStyleString}}` }} />}
+        {/* 안드로이드 "홈 화면에 추가" 설치 창 이벤트를 화면이 뜨기 전에 잡아 둔다 (components/install-prompt.tsx) */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `window.addEventListener("beforeinstallprompt",function(e){e.preventDefault();window.__bvInstallEvent=e;window.dispatchEvent(new Event("bv-installable"))});`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col bg-background text-foreground">
         {children}
       </body>

@@ -47,7 +47,7 @@ export function NoticePopup() {
   if (!notice) return null;
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-end justify-center pointer-events-none">
+    <div data-notice-popup className="fixed inset-0 z-[200] flex items-end justify-center pointer-events-none">
       {/* 배경 딤 */}
       <div
         className={`absolute inset-0 bg-black/40 transition-opacity duration-300 pointer-events-auto ${visible ? "opacity-100" : "opacity-0"}`}

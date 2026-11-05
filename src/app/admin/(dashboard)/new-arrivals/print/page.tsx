@@ -7,6 +7,7 @@ import { Printer, Loader2, ImageIcon, Plus, Minus } from "lucide-react";
 import { getNewArrivals } from "@/app/actions/new-arrivals";
 import { NEW_ARRIVAL_CATEGORIES, type NewArrival } from "@/lib/new-arrivals";
 import { getPublicSettings } from "@/app/actions/settings";
+import { QrCodeSvg } from "@/components/qr-code";
 
 function currentYearMonth(): string {
   const d = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Seoul" }));
@@ -22,6 +23,15 @@ function cardWidthMm(cols: number): number {
 }
 
 type Layout = "list" | "grid";
+
+// A4 인쇄 가능 높이 277mm(위아래 여백 10mm) 중 반올림 오차로 넘치지 않게 3mm 남긴다
+const MM = 96 / 25.4;
+const AVAIL_PX = 274 * MM;
+const PAD_PX = 20 * MM; // .newbook-fit 위아래 패딩 10mm씩
+const ROW_GAP_PX = 8 * MM; // 표지형 줄 간격
+const MIN_ZOOM = 0.35;
+// 표지형 자동: 한 줄 권수가 폭을 정하므로 너무 줄이면 가운데 좁은 기둥이 된다 → 이보다 작아지면 장을 늘린다
+const GRID_AUTO_MIN = 0.7;
 
 // 목록형 양옆 표지: 제목 표가 우선. 양쪽 한 줄씩 6권, 표 높이에 맞춘 폭으로 원래 비율(안 잘림)대로 놓는다.
 const SIDE_PER = 6; // 한쪽 표지 수 기본값
@@ -69,10 +79,9 @@ function NewArrivalsPrint() {
   const [manualSideW, setManualSideW] = useState<number | null>(null); // 목록형 표지 폭(mm), null = 자동
   const [manualZoom, setManualZoom] = useState<number | null>(null); // null = 자동 맞춤
 
-  // A4 한 장 자동 맞춤: 헤더(타이틀)는 고정, 그 아래 섹션만 축소
-  const contentRef = useRef<HTMLDivElement>(null); // 카드 전체 높이 측정(.newbook-fit)
-  const sectionsRef = useRef<HTMLDivElement>(null); // zoom 적용 + 섹션 높이 측정
-  const [scale, setScale] = useState(1);
+  // 도서관 바로가기 QR (상단)
+  const [showQr, setShowQr] = useState(true);
+  const [siteUrl, setSiteUrl] = useState("");
 
   useEffect(() => {
     Promise.all([getNewArrivals(month), getPublicSettings()]).then(([data, settings]) => {
@@ -82,78 +91,112 @@ function NewArrivalsPrint() {
         const parts = settings.apartment_name.trim().split(/\s+/);
         setLibName(parts[parts.length - 1]);
       }
+      setSiteUrl(window.location.origin);
       setLoading(false);
     });
   }, [month]);
 
-  // 배율 적용: 수동값이 있으면 그대로, 없으면 A4 한 장에 맞게 자동 축소
+  // A4 맞춤: 헤더(타이틀·QR)는 고정, 그 아래만 축소. 표지형은 넘치면 줄 단위로 페이지를 나눈다.
+  const headerRef = useRef<HTMLElement>(null); // 1쪽 헤더 높이 측정
+  const measureRef = useRef<HTMLDivElement>(null); // 축소 안 한 원래 크기 측정용(화면 밖, 안 보임)
+  const [scale, setScale] = useState(1);
+  const [pageStarts, setPageStarts] = useState<number[]>([0]); // 표지형: 각 쪽 첫 책 번호
+
   useLayoutEffect(() => {
     if (loading || items.length === 0) return;
 
-    // 96dpi 기준 A4 인쇄 가능 높이(297 - 위아래 여백 10mm) = 277mm
-    const AVAIL_PX = (277 * 96) / 25.4;
-
-    function apply(s: number) {
-      const sections = sectionsRef.current;
-      if (!sections) return;
-      // zoom은 레이아웃 높이까지 실제로 축소 → 인쇄 페이지네이션이 정확.
-      // 헤더(타이틀)는 고정, 섹션(그룹 타이틀+책 그리드)만 스케일한다.
-      sections.style.zoom = String(s);
-      setScale(s);
-    }
-
     function fit() {
-      const content = contentRef.current;
-      const sections = sectionsRef.current;
-      if (!content || !sections) return;
-      if (manualZoom !== null) {
-        apply(manualZoom);
+      const header = headerRef.current;
+      const measure = measureRef.current;
+      if (!header || !measure) return;
+      const mb = parseFloat(getComputedStyle(header).marginBottom) || 0;
+      const fixed1 = header.getBoundingClientRect().height + mb + PAD_PX; // 1쪽 고정부
+      const top = measure.getBoundingClientRect().top;
+      const totalH = measure.getBoundingClientRect().height;
+      if (totalH === 0) return;
+
+      if (layout === "list") {
+        const avail = AVAIL_PX - fixed1;
+        const s = manualZoom ?? (totalH > avail ? Math.max(MIN_ZOOM, avail / totalH) : 1);
+        setScale(s);
+        setPageStarts([0]);
         return;
       }
-      // 원본 높이 측정: zoom을 잠깐 1로 되돌리고 잰다
-      sections.style.zoom = "1";
-      const naturalH = content.getBoundingClientRect().height; // 헤더+섹션+패딩 전체
-      const sectionsH = sections.getBoundingClientRect().height; // 섹션만
-      const fixedH = naturalH - sectionsH; // 헤더 + 상하 패딩 (스케일 안 함)
-      // 섹션이 쓸 수 있는 높이 = 전체 여유 - 고정부. 넘칠 때만 축소.
-      const avail = AVAIL_PX - fixedH;
-      const s = sectionsH > avail ? Math.max(0.35, avail / sectionsH) : 1;
-      apply(s);
+
+      // 표지형: 줄마다 높이(원래 크기) 재기
+      const cards = Array.from(measure.querySelectorAll<HTMLElement>("[data-card]"));
+      if (cards.length === 0) return;
+      const rows: { top: number; bottom: number }[] = [];
+      cards.forEach((el, i) => {
+        const r = el.getBoundingClientRect();
+        const ri = Math.floor(i / cols);
+        if (!rows[ri]) rows[ri] = { top: r.top - top, bottom: r.bottom - top };
+        else rows[ri].bottom = Math.max(rows[ri].bottom, r.bottom - top);
+      });
+      const legendH = rows[0].top; // 범례 + 여백
+      const rowH = rows.map((r) => r.bottom - r.top);
+
+      // 배율 s에서 줄 단위로 쪽 나누기 → 각 쪽 첫 책 번호
+      const paginate = (s: number) => {
+        const starts = [0];
+        let avail = (AVAIL_PX - fixed1) / s - legendH;
+        let used = 0;
+        rowH.forEach((h, ri) => {
+          const need = (used > 0 ? ROW_GAP_PX : 0) + h;
+          if (used > 0 && used + need > avail) {
+            starts.push(ri * cols);
+            avail = (AVAIL_PX - PAD_PX) / s;
+            used = h;
+          } else used += need;
+        });
+        return starts;
+      };
+
+      let s = manualZoom ?? 1;
+      if (manualZoom === null) {
+        // 가장 적은 장수에서 가장 크게: 1장에 GRID_AUTO_MIN 이상으로 들어가면 1장, 아니면 2장, 3장 …
+        for (let p = 1; p <= rowH.length; p++) {
+          if (paginate(1).length <= p) { s = 1; break; }
+          if (paginate(GRID_AUTO_MIN).length > p) continue;
+          let lo = GRID_AUTO_MIN, hi = 1;
+          for (let k = 0; k < 18; k++) {
+            const mid = (lo + hi) / 2;
+            if (paginate(mid).length <= p) lo = mid; else hi = mid;
+          }
+          s = Math.floor(lo * 1000) / 1000;
+          break;
+        }
+      }
+      setScale(s);
+      setPageStarts(paginate(s));
     }
 
     fit();
 
-    // 표지 이미지 로딩 완료 시 재측정 (캐시된 것 포함해 전부 감시)
-    const imgs = Array.from(contentRef.current?.querySelectorAll("img") ?? []);
-    let remaining = imgs.filter((im) => !im.complete).length;
-    const onOne = () => {
-      remaining -= 1;
-      if (remaining <= 0) fit();
-    };
+    // 표지 이미지 로딩 완료 시 재측정
+    const imgs = Array.from(measureRef.current?.querySelectorAll("img") ?? []);
+    const onLoad = () => fit();
     imgs.forEach((im) => {
       if (!im.complete) {
-        im.addEventListener("load", onOne, { once: true });
-        im.addEventListener("error", onOne, { once: true });
+        im.addEventListener("load", onLoad, { once: true });
+        im.addEventListener("error", onLoad, { once: true });
       }
     });
-
+    document.fonts?.ready.then(fit);
     window.addEventListener("resize", fit);
-    window.addEventListener("beforeprint", fit);
     return () => {
       imgs.forEach((im) => {
-        im.removeEventListener("load", onOne);
-        im.removeEventListener("error", onOne);
+        im.removeEventListener("load", onLoad);
+        im.removeEventListener("error", onLoad);
       });
       window.removeEventListener("resize", fit);
-      window.removeEventListener("beforeprint", fit);
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, items, layout, cols, sidePer, manualSideW, tableFont, manualZoom]);
+  }, [loading, items, layout, cols, sidePer, manualSideW, tableFont, manualZoom, showQr, siteUrl]);
 
   // 배율 수동 조절 (현재 배율 기준 ±5%)
   function bumpZoom(delta: number) {
     const base = manualZoom ?? scale;
-    const next = Math.min(1.5, Math.max(0.35, Math.round((base + delta) * 100) / 100));
+    const next = Math.min(1.5, Math.max(MIN_ZOOM, Math.round((base + delta) * 100) / 100));
     setManualZoom(next);
   }
 
@@ -180,6 +223,146 @@ function NewArrivalsPrint() {
   const leftCovers = picked.slice(0, Math.ceil(pickN / 2));
   const rightCovers = picked.slice(Math.ceil(pickN / 2));
   const sideW = manualSideW ?? sideCoverWidth(items.length, Math.max(1, leftCovers.length), tableFont);
+
+  // 쪽 나누기 (목록형은 한 쪽)
+  const pages = (layout === "grid" ? pageStarts : [0]).map((start, i, arr) => ({
+    offset: start,
+    books: flatBooks.slice(start, arr[i + 1] ?? flatBooks.length),
+  }));
+
+  // 헤더: 제목 + 도서관 바로가기 QR
+  const headerBlock = (
+    <header ref={headerRef} className="newbook-header relative mb-8">
+      <div className={`flex items-center gap-[6mm] ${showQr && siteUrl ? "justify-between" : "justify-center"}`}>
+        <div className={`flex min-w-0 flex-col gap-2 ${showQr && siteUrl ? "items-start text-left" : "items-center text-center"}`}>
+          <span className="newbook-eyebrow inline-flex items-center gap-2 text-primary font-bold tracking-[0.35em] text-xs uppercase">
+            <span className="newbook-eyebrow-line" />
+            New Arrivals
+            <span className="newbook-eyebrow-line" />
+          </span>
+          <h2 className="newbook-title text-4xl font-extrabold text-neutral-900 leading-tight break-keep">
+            <span className="text-primary">{monthNum}월</span> {libName} 신간도서
+          </h2>
+          {showQr && siteUrl && (
+            <p className="mt-1 text-[15px] font-semibold leading-snug text-neutral-700 break-keep">
+              오른쪽 QR을 휴대폰 카메라로 찍어 <span className="text-primary">로그인</span>하면,
+              <br />
+              읽고 싶은 책이 지금 <span className="text-primary">대여 가능한지</span> 바로 확인할 수 있어요.
+            </p>
+          )}
+        </div>
+        {showQr && siteUrl && (
+          <div className="flex shrink-0 flex-col items-center gap-1.5">
+            <div className="newbook-badge rounded-xl border-2 border-primary bg-white p-[1.5mm]">
+              <QrCodeSvg value={siteUrl} className="size-[34mm]" />
+            </div>
+            <span className="newbook-badge rounded-full bg-primary px-3 py-0.5 text-xs font-bold text-primary-foreground">
+              도서관 바로가기
+            </span>          </div>
+        )}
+      </div>
+      <div className="newbook-rule mt-5 h-px w-full bg-gradient-to-r from-transparent via-neutral-200 to-transparent" />
+    </header>
+  );
+
+  // 목록형 표 + 양옆 표지
+  const listBlock = (
+    <div className="flex items-stretch gap-[4mm]">
+      {leftCovers.length > 0 && <SideCovers covers={leftCovers} width={sideW} />}
+      <div className="min-w-0 flex-1">
+        <table className="newbook-table h-full w-full border-collapse leading-snug" style={{ fontSize: `${tableFont}px` }}>
+          <thead>
+            <tr className="bg-neutral-800 text-white">
+              <th className="w-[17mm] py-2 font-bold tracking-[0.3em]">분류</th>
+              <th className="py-2 font-bold tracking-[0.3em]">책 제목</th>
+              {hasAuthor && <th className="w-[24mm] py-2 font-bold tracking-[0.3em]">저자</th>}
+            </tr>
+          </thead>
+          {groups.map((g) => (
+            <tbody key={g.value} className="border-t-2 border-neutral-700" style={{ backgroundColor: `${g.color}0f` }}>
+              {g.books.map((r, i) => (
+                <tr key={r.id} className="border-b border-dashed border-neutral-300 last:border-b-0">
+                  {i === 0 && (
+                    <td
+                      rowSpan={g.books.length}
+                      className="whitespace-nowrap border-r border-neutral-300 px-2 pt-2 text-center align-top text-[1.08em] font-extrabold"
+                      style={{ color: g.color }}
+                    >
+                      {g.label}
+                    </td>
+                  )}
+                  <td className="px-3 py-[1.6mm] font-semibold text-neutral-800 break-keep">{r.title}</td>
+                  {hasAuthor && (
+                    <td className="border-l border-neutral-300 px-1.5 text-center text-[0.85em] text-neutral-500 break-keep">
+                      {r.author}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          ))}
+        </table>
+      </div>
+      {rightCovers.length > 0 && <SideCovers covers={rightCovers} width={sideW} />}
+    </div>
+  );
+
+  // 분류 색상 범례 (표지형 1쪽)
+  const legendBlock = (
+    <div className="newbook-legend flex flex-wrap items-center justify-center gap-x-5 gap-y-2 mb-6">
+      {groups.map((g) => (
+        <span key={g.value} className="inline-flex items-baseline gap-1.5 text-sm font-bold text-neutral-700 whitespace-nowrap">
+          <span className="newbook-badge inline-block size-3 self-center rounded-full" style={{ backgroundColor: g.color }} />
+          {g.label}
+          <span className="text-neutral-400 font-medium text-xs">{g.hint}</span>
+          <span className="text-neutral-400 font-medium text-xs">{g.books.length}권</span>
+        </span>
+      ))}
+    </div>
+  );
+
+  // 표지 그리드 (분류 구분 없이 순서대로, 색상으로만 구분)
+  // 폭 고정: 축소(zoom)하면 안쪽 폭이 넓어져 한 줄 권수가 늘어나므로, 고른 권수 그대로 줄어들게 한다
+  const gridBlock = (books: typeof flatBooks, offset: number, measure: boolean) => (
+    <div
+      className="newbook-grid mx-auto flex flex-wrap justify-start"
+      style={{ width: `${CONTENT_W}mm`, columnGap: `${GAP_X}mm`, rowGap: `${ROW_GAP_PX}px` }}
+    >
+      {books.map(({ book: it, color }, i) => (
+        <div
+          key={it.id}
+          data-card={measure ? "" : undefined}
+          className="newbook-card group flex flex-col items-center text-center break-inside-avoid"
+          style={{ width: `${cardW}mm` }}
+        >
+          <div className="newbook-cover relative aspect-[3/4] w-full">
+            {/* 번호 배지 (분류 색상) */}
+            <span
+              className="newbook-badge absolute -top-2 -left-2 z-10 flex size-7 items-center justify-center rounded-full text-white text-xs font-bold shadow-md ring-2 ring-white"
+              style={{ backgroundColor: color }}
+            >
+              {offset + i + 1}
+            </span>
+            <div
+              className="newbook-cover-inner newbook-badge absolute inset-0 overflow-hidden rounded-lg bg-neutral-100 flex items-center justify-center shadow-[0_6px_16px_-6px_rgba(0,0,0,0.25)]"
+              style={{ border: `2px solid ${color}` }}
+            >
+              {it.cover_image ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={it.cover_image} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <ImageIcon className="size-8 text-neutral-300" />
+              )}
+            </div>
+          </div>
+          <p className="newbook-name mt-3 px-1 text-sm font-semibold text-neutral-800 leading-snug break-keep line-clamp-2">
+            {it.title}
+          </p>
+          {it.author && <p className="newbook-author mt-0.5 text-xs text-neutral-400 line-clamp-1">{it.author}</p>}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="space-y-4">
@@ -342,8 +525,20 @@ function NewArrivalsPrint() {
           )}
         </div>
 
+        {layout === "grid" && pages.length > 1 && (
+          <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-800">A4 {pages.length}장</span>
+        )}
+
+        {/* 도서관 바로가기 QR */}
+        <label className="flex cursor-pointer items-center gap-2">
+          <input type="checkbox" className="size-4 accent-primary" checked={showQr} onChange={(e) => setShowQr(e.target.checked)} />
+          <span className="text-muted-foreground">바로가기 QR</span>
+        </label>
+
         <p className="text-xs text-muted-foreground">
-          {layout === "list" ? "표지 크기는 표지 수와 책 권수에 맞춰 자동으로 정해져요." : "한 줄 권수와 크기를 조절할 수 있어요."} &quot;자동&quot;은 A4 한 장에 맞게 자동 축소합니다.
+          {layout === "list"
+            ? "표지 크기는 표지 수와 책 권수에 맞춰 자동으로 정해져요. \"자동\"은 A4 한 장에 맞게 자동 축소합니다."
+            : "\"자동\"은 A4에 맞게 줄이고, 많이 작아지면 줄 단위로 다음 장에 이어 인쇄합니다. 한 장에 담으려면 한 줄 권수를 늘리세요."}
         </p>
       </div>
 
@@ -356,134 +551,44 @@ function NewArrivalsPrint() {
           이 달에 등록된 신간이 없습니다.
         </p>
       ) : (
-        <div className="flex justify-center print:block">
-        <div className="newbook-page mx-auto bg-white shadow-sm print:shadow-none rounded-2xl print:rounded-none">
-          <div ref={contentRef} className="newbook-fit">
-          {/* 헤더 */}
-          <header className="newbook-header relative mb-8">
-            <div className="flex flex-col items-center text-center gap-2">
-              <span className="newbook-eyebrow inline-flex items-center gap-2 text-primary font-bold tracking-[0.35em] text-xs uppercase">
-                <span className="newbook-eyebrow-line" />
-                New Arrivals
-                <span className="newbook-eyebrow-line" />
-              </span>
-              <h2 className="newbook-title text-4xl font-extrabold text-neutral-900 leading-tight">
-                <span className="text-primary">{monthNum}월</span> {libName} 신간도서
-              </h2>
-            </div>
-            <div className="newbook-rule mt-5 h-px w-full bg-gradient-to-r from-transparent via-neutral-200 to-transparent" />
-          </header>
-
-          {/* 범례 + 한 줄 흐름 그리드 (헤더 제외, 이 블록만 스케일) */}
-          <div ref={sectionsRef}>
-            {layout === "list" ? (
-              <div className="flex items-stretch gap-[4mm]">
-                {leftCovers.length > 0 && <SideCovers covers={leftCovers} width={sideW} />}
-                <div className="min-w-0 flex-1">
-                  <table className="newbook-table h-full w-full border-collapse leading-snug" style={{ fontSize: `${tableFont}px` }}>
-                    <thead>
-                      <tr className="bg-neutral-800 text-white">
-                        <th className="w-[17mm] py-2 font-bold tracking-[0.3em]">분류</th>
-                        <th className="py-2 font-bold tracking-[0.3em]">책 제목</th>
-                        {hasAuthor && <th className="w-[24mm] py-2 font-bold tracking-[0.3em]">저자</th>}
-                      </tr>
-                    </thead>
-                    {groups.map((g) => (
-                      <tbody key={g.value} className="border-t-2 border-neutral-700" style={{ backgroundColor: `${g.color}0f` }}>
-                        {g.books.map((r, i) => (
-                          <tr key={r.id} className="border-b border-dashed border-neutral-300 last:border-b-0">
-                            {i === 0 && (
-                              <td
-                                rowSpan={g.books.length}
-                                className="whitespace-nowrap border-r border-neutral-300 px-2 pt-2 text-center align-top text-[1.08em] font-extrabold"
-                                style={{ color: g.color }}
-                              >
-                                {g.label}
-                              </td>
-                            )}
-                            <td className="px-3 py-[1.6mm] font-semibold text-neutral-800 break-keep">{r.title}</td>
-                            {hasAuthor && (
-                              <td className="border-l border-neutral-300 px-1.5 text-center text-[0.85em] text-neutral-500 break-keep">
-                                {r.author}
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    ))}
-                  </table>
-                </div>
-                {rightCovers.length > 0 && <SideCovers covers={rightCovers} width={sideW} />}
-              </div>
-            ) : (
-            <>
-            {/* 분류 색상 범례 */}
-            <div className="newbook-legend flex flex-wrap items-center justify-center gap-x-5 gap-y-2 mb-6">
-              {groups.map((g) => (
-                <span
-                  key={g.value}
-                  className="inline-flex items-baseline gap-1.5 text-sm font-bold text-neutral-700 whitespace-nowrap"
-                >
-                  <span
-                    className="newbook-badge inline-block size-3 self-center rounded-full"
-                    style={{ backgroundColor: g.color }}
-                  />
-                  {g.label}
-                  <span className="text-neutral-400 font-medium text-xs">{g.hint}</span>
-                  <span className="text-neutral-400 font-medium text-xs">{g.books.length}권</span>
-                </span>
-              ))}
-            </div>
-
-            {/* 표지 그리드 (분류 구분 없이 순서대로, 색상으로만 구분) */}
-            <div
-              // 폭 고정: 축소(zoom)하면 안쪽 폭이 넓어져 한 줄 권수가 늘어나므로, 고른 권수 그대로 줄어들게 한다
-              className="newbook-grid mx-auto flex flex-wrap justify-start"
-              style={{ width: `${CONTENT_W}mm`, columnGap: `${GAP_X}mm`, rowGap: "8mm" }}
-            >
-              {flatBooks.map(({ book: it, color }, idx) => (
-                <div
-                  key={it.id}
-                  className="newbook-card group flex flex-col items-center text-center break-inside-avoid"
-                  style={{ width: `${cardW}mm` }}
-                >
-                  <div className="newbook-cover relative aspect-[3/4] w-full">
-                    {/* 번호 배지 (분류 색상) */}
-                    <span
-                      className="newbook-badge absolute -top-2 -left-2 z-10 flex size-7 items-center justify-center rounded-full text-white text-xs font-bold shadow-md ring-2 ring-white"
-                      style={{ backgroundColor: color }}
-                    >
-                      {idx + 1}
-                    </span>
-                    <div
-                      className="newbook-cover-inner newbook-badge absolute inset-0 overflow-hidden rounded-lg bg-neutral-100 flex items-center justify-center shadow-[0_6px_16px_-6px_rgba(0,0,0,0.25)]"
-                      style={{ border: `2px solid ${color}` }}
-                    >
-                      {it.cover_image ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={it.cover_image} alt="" className="w-full h-full object-cover" />
-                      ) : (
-                        <ImageIcon className="size-8 text-neutral-300" />
-                      )}
-                    </div>
-                  </div>
-                  <p className="newbook-name mt-3 px-1 text-sm font-semibold text-neutral-800 leading-snug break-keep line-clamp-2">
-                    {it.title}
-                  </p>
-                  {it.author && (
-                    <p className="newbook-author mt-0.5 text-xs text-neutral-400 line-clamp-1">
-                      {it.author}
-                    </p>
-                  )}
-                </div>
-              ))}
-            </div>
-            </>
+        <>
+          {/* 원래 크기 측정용 (화면 밖, 안 보임) */}
+          <div
+            ref={measureRef}
+            aria-hidden
+            className="pointer-events-none invisible fixed left-[-10000px] top-0 print:hidden"
+            style={{ width: `${CONTENT_W}mm` }}
+          >
+            {layout === "list" ? listBlock : (
+              <>
+                {legendBlock}
+                {gridBlock(flatBooks, 0, true)}
+              </>
             )}
           </div>
+
+          <div className="flex flex-col items-center gap-6 print:block">
+            {pages.map((chunk, pi) => (
+              <div
+                key={pi}
+                className="newbook-page mx-auto bg-white shadow-sm print:shadow-none rounded-2xl print:rounded-none"
+              >
+                <div className="newbook-fit">
+                  {pi === 0 && headerBlock}
+                  {/* 헤더 제외, 이 블록만 축소 */}
+                  <div style={{ zoom: scale }}>
+                    {layout === "list" ? listBlock : (
+                      <>
+                        {pi === 0 && legendBlock}
+                        {gridBlock(chunk.books, chunk.offset, false)}
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-        </div>
+        </>
       )}
     </div>
   );
