@@ -44,12 +44,16 @@ export const IMPORT_COLUMNS: Record<ImportKind, ImportColumn[]> = {
     { key: "isbn", label: "ISBN", aliases: ["ISBN13", "ISBN10"], example: "9780064400558", maxLength: 40 },
     { key: "barcode", label: "바코드", aliases: ["Barcode", "등록번호", "자체바코드"], example: "", maxLength: 30 },
     { key: "title", label: "제목", aliases: ["도서명", "책제목", "Title", "서명"], example: "Charlotte's Web", maxLength: 200 },
+    // 제목으로 찾을 때만 쓴다: 적혀 있으면 저자도 맞는 책만 고른다 (선택)
+    { key: "author", label: "저자", aliases: ["Author", "지은이", "작가"], example: "E. B. White", maxLength: 100 },
     ...AR_COLUMNS,
   ],
   students: [
     { key: "name", label: "이름", aliases: ["학생이름", "성명", "Name", "학생"], required: true, example: "김하늘", maxLength: 20 },
     { key: "group", label: "반", aliases: ["반이름", "클래스", "Class", "소속"], required: true, example: "Phonics A", maxLength: 20 },
     { key: "grade", label: "학년", aliases: ["Grade"], example: "3", maxLength: 4 },
+    { key: "zpd_low", label: "ZPD최소", aliases: ["ZPD 하한", "ZPD하한", "ZPD Low", "ZPD Min", "레벨최소", "레벨 최소", "최소레벨"], example: "2.5", maxLength: 6 },
+    { key: "zpd_high", label: "ZPD최대", aliases: ["ZPD 상한", "ZPD상한", "ZPD High", "ZPD Max", "레벨최대", "레벨 최대", "최대레벨"], example: "3.8", maxLength: 6 },
     { key: "contact_phone", label: "보호자연락처", aliases: ["보호자 휴대폰", "보호자휴대폰", "연락처", "휴대폰", "전화번호", "보호자전화"], example: "010-1234-5678", maxLength: 20 },
     { key: "memo", label: "메모", aliases: ["비고", "Memo", "참고"], example: "", maxLength: 500 },
   ],
@@ -76,8 +80,15 @@ export function matchColumn(kind: ImportKind, header: string): string | null {
   return null;
 }
 
-/** 파일 바이트 → 글자. UTF-8이 아니면(엑셀 "CSV(쉼표로 분리)" 기본 저장 = EUC-KR) EUC-KR로 읽는다 */
+/**
+ * 파일 바이트 → 글자.
+ * - BOM FF FE / FE FF 이면 UTF-16 LE / BE (엑셀 "유니코드 텍스트" 저장)
+ * - UTF-8이 아니면(엑셀 "CSV(쉼표로 분리)" 기본 저장 = EUC-KR) EUC-KR로 읽는다
+ */
 export function decodeFileText(buf: ArrayBuffer): string {
+  const head = new Uint8Array(buf, 0, Math.min(2, buf.byteLength));
+  if (head.length === 2 && head[0] === 0xff && head[1] === 0xfe) return new TextDecoder("utf-16le").decode(buf);
+  if (head.length === 2 && head[0] === 0xfe && head[1] === 0xff) return new TextDecoder("utf-16be").decode(buf);
   try {
     return new TextDecoder("utf-8", { fatal: true }).decode(buf);
   } catch {
@@ -226,6 +237,31 @@ export function normalizeImportBarcode(input: string): string {
   return s.toUpperCase();
 }
 
+/**
+ * 엑셀이 휴대폰 번호를 숫자로 바꾸며 앞 0을 지운 값("1012345678")이면 앞에 0을 붙인다.
+ * 바꿨으면 고친 값, 아니면 null.
+ */
+export function restorePhoneLeadingZero(raw: string): string | null {
+  const s = raw.trim();
+  return /^10\d{8}$/.test(s) ? `0${s}` : null;
+}
+
+/** AR 레벨 범위(ZPD) 칸 확인: 빈 칸 또는 0~13.9 */
+function checkZpd(values: Record<string, string>): string | null {
+  const num = (raw: string | undefined) => {
+    const v = (raw ?? "").trim();
+    if (v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n >= 0 && n <= 13.9 ? n : NaN;
+  };
+  const low = num(values.zpd_low);
+  const high = num(values.zpd_high);
+  if (Number.isNaN(low)) return "ZPD최소는 0~13.9 사이 숫자로 적어 주세요.";
+  if (Number.isNaN(high)) return "ZPD최대는 0~13.9 사이 숫자로 적어 주세요.";
+  if (low !== null && high !== null && low > high) return "ZPD최소가 ZPD최대보다 클 수 없습니다.";
+  return null;
+}
+
 /** 줄 단위 미리 확인 (화면용). 서버에서 다시 확인한다. 문제가 없으면 null */
 export function checkImportRow(kind: ImportKind, values: Record<string, string>): string | null {
   for (const col of IMPORT_COLUMNS[kind]) {
@@ -248,6 +284,8 @@ export function checkImportRow(kind: ImportKind, values: Record<string, string>)
   if (kind === "students") {
     const g = values.grade ?? "";
     if (g && !/^(0|[1-9]|1[0-2])$/.test(g.replace(/학년$/, "").trim())) return "학년은 0~12 숫자로 적어 주세요 (미취학은 0).";
+    const zpdError = checkZpd(values);
+    if (zpdError) return zpdError;
   }
   return null;
 }

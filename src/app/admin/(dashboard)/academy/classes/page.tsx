@@ -22,7 +22,6 @@ import {
   renameClass,
   moveStudentsToClass,
   setStudentsStatus,
-  ensureClasses,
   getRecentReturnsForAr,
   type AcademyClassSummary,
   type AcademyStudent,
@@ -191,7 +190,11 @@ function ClassesView() {
         setRenamePreview(null);
         return;
       }
-      setMsg({ type: "success", text: `반 이름을 '${to}'(으)로 바꿨습니다. 학생 ${res.data?.updated ?? 0}명.` });
+      setMsg(
+        res.data?.notice
+          ? { type: "error", text: `반 이름을 '${to}'(으)로 바꿨습니다. ${res.data.notice}` }
+          : { type: "success", text: `반 이름을 '${to}'(으)로 바꿨습니다. 학생 ${res.data?.updated ?? 0}명.` }
+      );
       setRenameOpen(false);
       setRenamePreview(null);
       setNewName("");
@@ -215,9 +218,13 @@ function ClassesView() {
         if (!res.success) {
           setMsg({ type: "error", text: res.error || "반 이동에 실패했습니다." });
         } else {
-          // 반 목록에 없던 새 반이면 목록에도 추가 (로그인·회원 추가 화면 반 버튼에 나오게)
-          if (!classes.some((c) => c.name === confirm.to && c.listed)) await ensureClasses([confirm.to]);
-          setMsg({ type: "success", text: `${res.data?.moved ?? 0}명을 '${confirm.to}' 반으로 옮겼습니다.` });
+          // 반 목록에 없던 새 반은 서버(moveStudentsToClass)가 목록에 추가한다
+          const moved = `${res.data?.moved ?? 0}명을 '${confirm.to}' 반으로 옮겼습니다.`;
+          setMsg(
+            res.data?.warning
+              ? { type: "error", text: `${moved} 다만 ${res.data.warning}` }
+              : { type: "success", text: `${moved}${res.data?.addedClass ? " 반 목록에도 새 반을 추가했습니다." : ""}` }
+          );
           setChecked(new Set());
           setMoveTarget("");
         }

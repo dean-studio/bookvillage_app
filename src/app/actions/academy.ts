@@ -22,6 +22,7 @@ import {
   checkImportRow,
   cleanIsbn,
   normalizeImportBarcode,
+  restorePhoneLeadingZero,
   type ImportKind,
   type ImportRow,
 } from '@/lib/academy-import'
@@ -80,6 +81,24 @@ function validGroupName(name: string): string | null {
   const g = name.trim()
   if (!g || g.length > 20) return null
   return g
+}
+
+/**
+ * 반 목록(member_groups)에 없는 반 이름을 뒤에 추가한다 (서버 안에서만 부름).
+ * 반 이동·학생 일괄 등록이 끝난 뒤 로그인·회원 추가 화면의 반 버튼에 새 반이 나오게 하려는 것.
+ */
+async function addMissingClasses(names: string[]): Promise<{ ok: true; added: string[] } | { ok: false; error: string }> {
+  const groups = await readMemberGroups()
+  const added: string[] = []
+  for (const n of names) {
+    const g = validGroupName(n)
+    if (g && !groups.includes(g) && !added.includes(g)) added.push(g)
+  }
+  if (added.length === 0) return { ok: true, added }
+  if (added.length > 100) return { ok: false, error: '새 반이 너무 많아(100개 넘음) 반 목록에 추가하지 않았습니다.' }
+  const saved = await writeMemberGroups([...groups, ...added])
+  if (!saved) return { ok: false, error: '반 목록 저장에 실패했습니다. 관리 → 반 설정에서 직접 추가해 주세요.' }
+  return { ok: true, added }
 }
 
 type ResidentRow = { id: string; name: string; dong_ho: string; phone_number: string; contact_phone: string | null }
@@ -334,10 +353,12 @@ export async function previewClassRename(oldName: string): Promise<ActionResult<
 
   const from = oldName.trim()
   if (!from) return { success: false, error: '반 이름이 비어 있습니다.' }
+  // 반별 현황(fetchResidents)과 같은 기준: 회원(resident)이면서 비회원(is_guest) 아님
   const { count, error } = await supabaseAdmin
     .from('profiles')
     .select('id', { count: 'exact', head: true })
     .eq('role', 'resident')
+    .eq('is_guest', false)
     .eq('dong_ho', from)
   if (error) return { success: false, error: '학생 수를 세지 못했습니다.' }
   const groups = await readMemberGroups()
@@ -345,14 +366,17 @@ export async function previewClassRename(oldName: string): Promise<ActionResult<
 }
 
 /**
- * 반 이름 변경: 반 목록(member_groups)의 이름과 그 반 학생들의 profiles.dong_ho 를 함께 바꾼다.
- * expectedCount(미리 센 학생 수)와 지금 수가 다르면 멈춘다.
+ * 반 이름 변경: 그 반 학생들의 profiles.dong_ho 를 먼저 바꾸고, 그다음 반 목록(member_groups)의 이름을 바꾼다.
+ * - 대상 = 회원(resident)이면서 비회원(is_guest) 아님 (반별 현황과 같은 기준)
+ * - expectedCount(미리 센 학생 수)와 지금 수가 다르면 바꾸기 전에 멈춘다.
+ * - 실제로 바뀐 수가 expectedCount 와 다르면 결과에 알림(notice)을 넣는다.
+ * - 반 목록 저장이 실패하면 학생 반을 되돌리고, 되돌리기도 실패하면 그 사실을 오류 문구에 적는다.
  */
 export async function renameClass(
   oldName: string,
   newName: string,
   expectedCount: number
-): Promise<ActionResult<{ updated: number }>> {
+): Promise<ActionResult<{ updated: number; notice?: string }>> {
   const auth = await requireAcademyAdmin()
   if (!auth.ok) return { success: false, error: auth.error }
 
@@ -368,6 +392,7 @@ export async function renameClass(
     .from('profiles')
     .select('id', { count: 'exact', head: true })
     .eq('role', 'resident')
+    .eq('is_guest', false)
     .eq('dong_ho', to)
   if ((targetCount ?? 0) > 0) return { success: false, error: `'${to}' 반에 이미 학생이 있습니다. 합치려면 학생을 골라 반 이동을 쓰세요.` }
 
@@ -375,34 +400,52 @@ export async function renameClass(
     .from('profiles')
     .select('id', { count: 'exact', head: true })
     .eq('role', 'resident')
+    .eq('is_guest', false)
     .eq('dong_ho', from)
   if (countError) return { success: false, error: '학생 수를 세지 못했습니다.' }
   if ((count ?? 0) !== expectedCount) {
     return { success: false, error: `학생 수가 확인할 때(${expectedCount}명)와 달라졌습니다(지금 ${count ?? 0}명). 다시 확인해 주세요.` }
   }
 
-  // 1) 반 목록 이름 변경 (목록에 있을 때만)
-  const listed = groups.includes(from)
-  if (listed) {
-    const ok = await writeMemberGroups(groups.map((g) => (g === from ? to : g)))
-    if (!ok) return { success: false, error: '반 목록 저장에 실패했습니다.' }
-  }
-
-  // 2) 학생들 반 변경
-  const { error, count: updated } = await supabaseAdmin
+  // 1) 학생들 반 변경 (바뀐 행을 돌려받아 실제 수를 센다)
+  const { data: changed, error } = await supabaseAdmin
     .from('profiles')
-    .update({ dong_ho: to }, { count: 'exact' })
+    .update({ dong_ho: to })
     .eq('role', 'resident')
+    .eq('is_guest', false)
     .eq('dong_ho', from)
-  if (error) {
-    if (listed) await writeMemberGroups(groups) // 반 목록 되돌림
-    return { success: false, error: '학생 반 변경에 실패했습니다. 반 목록은 원래대로 되돌렸습니다.' }
+    .select('id')
+  if (error) return { success: false, error: '학생 반 변경에 실패했습니다. 바뀐 것은 없습니다.' }
+  const changedIds = (changed ?? []).map((r) => r.id)
+  const updated = changedIds.length
+  const notice =
+    updated !== expectedCount
+      ? `확인할 때는 ${expectedCount}명이었는데 실제로 ${updated}명의 반이 바뀌었습니다. 반별 현황에서 확인해 주세요.`
+      : undefined
+
+  // 2) 반 목록 이름 변경 (목록에 있을 때만)
+  if (groups.includes(from)) {
+    const ok = await writeMemberGroups(groups.map((g) => (g === from ? to : g)))
+    if (!ok) {
+      // 학생 반 되돌림 (방금 바꾼 학생만)
+      let reverted = true
+      for (const ids of chunk(changedIds, 200)) {
+        const { error: revertError } = await supabaseAdmin.from('profiles').update({ dong_ho: from }).in('id', ids).eq('dong_ho', to)
+        if (revertError) reverted = false
+      }
+      return {
+        success: false,
+        error: reverted
+          ? '반 목록 저장에 실패해 학생 반을 원래대로 되돌렸습니다. 다시 시도해 주세요.'
+          : `반 목록 저장에 실패했고, 학생 반 되돌리기도 실패했습니다. 학생 일부(최대 ${updated}명)는 '${to}' 반으로 바뀌어 있습니다. 반별 현황에서 확인한 뒤 다시 시도해 주세요.`,
+      }
+    }
   }
-  return { success: true, data: { updated: updated ?? 0 } }
+  return { success: true, data: { updated, notice } }
 }
 
 /** 고른 학생들을 다른 반으로 옮긴다. 대상이 모두 회원(resident)이 아니면 멈춘다 */
-export async function moveStudentsToClass(userIds: string[], targetGroup: string): Promise<ActionResult<{ moved: number }>> {
+export async function moveStudentsToClass(userIds: string[], targetGroup: string): Promise<ActionResult<{ moved: number; addedClass: boolean; warning?: string }>> {
   const auth = await requireAcademyAdmin()
   if (!auth.ok) return { success: false, error: auth.error }
 
@@ -425,7 +468,10 @@ export async function moveStudentsToClass(userIds: string[], targetGroup: string
     .eq('role', 'resident')
     .in('id', ids)
   if (error) return { success: false, error: '반 이동에 실패했습니다.' }
-  return { success: true, data: { moved: moved ?? 0 } }
+  // 반 목록에 없던 새 반이면 목록에도 추가 (로그인·회원 추가 화면 반 버튼에 나오게)
+  const classes = await addMissingClasses([to])
+  if (!classes.ok) return { success: true, data: { moved: moved ?? 0, addedClass: false, warning: classes.error } }
+  return { success: true, data: { moved: moved ?? 0, addedClass: classes.added.length > 0 } }
 }
 
 /** 퇴원('inactive')·복귀('active'). academy_members.status 만 바꾸고 학년·ZPD 는 그대로 둔다 */
@@ -451,6 +497,26 @@ export async function setStudentsStatus(userIds: string[], status: 'active' | 'i
     .upsert(ids.map((user_id) => ({ user_id, status, updated_at: now })), { onConflict: 'user_id' })
   if (error) return { success: false, error: '상태 저장에 실패했습니다.' }
   return { success: true, data: { updated: ids.length } }
+}
+
+/** 퇴원(academy_members.status = 'inactive') 학생 id 목록. QR 카드 인쇄 화면에서 학원일 때만 부른다 */
+export async function getInactiveStudentIds(): Promise<ActionResult<{ ids: string[] }>> {
+  const auth = await requireAcademyAdmin()
+  if (!auth.ok) return { success: false, error: auth.error }
+
+  const ids: string[] = []
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabaseAdmin
+      .from('academy_members')
+      .select('user_id')
+      .eq('status', 'inactive')
+      .order('user_id')
+      .range(from, from + PAGE - 1)
+    if (error) return { success: false, error: '퇴원생 목록을 불러오지 못했습니다.' }
+    ids.push(...(data ?? []).map((r) => r.user_id))
+    if (!data || data.length < PAGE) break
+  }
+  return { success: true, data: { ids } }
 }
 
 // ─────────────────────────────────────────────
@@ -540,29 +606,17 @@ export async function createAcademyStudent(input: AcademyStudentInput): Promise<
   return createStudent(input)
 }
 
-/** 반 목록(member_groups)에 없는 반 이름을 뒤에 추가한다 */
-export async function ensureClasses(names: string[]): Promise<ActionResult<{ added: string[] }>> {
-  const auth = await requireAcademyAdmin()
-  if (!auth.ok) return { success: false, error: auth.error }
-
-  const groups = await readMemberGroups()
-  const added: string[] = []
-  for (const n of names) {
-    const g = validGroupName(n)
-    if (g && !groups.includes(g) && !added.includes(g)) added.push(g)
-  }
-  if (added.length === 0) return { success: true, data: { added } }
-  if (added.length > 100) return { success: false, error: '새 반이 너무 많습니다 (100개까지).' }
-  const ok = await writeMemberGroups([...groups, ...added])
-  if (!ok) return { success: false, error: '반 목록 저장에 실패했습니다.' }
-  return { success: true, data: { added } }
-}
-
 // ─────────────────────────────────────────────
 // 엑셀 일괄 (서버는 화면에서 파싱한 JSON 배열만 받는다)
 // ─────────────────────────────────────────────
 
-export type ImportLineResult = { line: number; ok: boolean; message: string }
+export type ImportLineResult = {
+  line: number
+  ok: boolean
+  message: string
+  /** 실패가 아니라 일부러 건너뛴 줄 (이미 있는 책·학생) */
+  skipped?: boolean
+}
 
 /** 받은 줄 정리: 아는 칸만, 문자열만, 최대 500줄 */
 function sanitizeRows(kind: ImportKind, rows: ImportRow[]): ImportRow[] | null {
@@ -601,27 +655,42 @@ function parseArUpdate(values: Partial<Record<ArFieldKey, string>>):
   return { data: out as BookUpdate }
 }
 
+/**
+ * 이미 등록된(삭제 안 된) 책이 있는 ISBN (정리된 ISBN 목록 중에서).
+ * isbn 칸에는 "ISBN10 ISBN13" 처럼 두 개가 들어 있는 경우가 많아 바코드와 함께 본다. 조회 실패면 throw.
+ */
+async function queryExistingIsbns(clean: string[]): Promise<Set<string>> {
+  const existing = new Set<string>()
+  for (const part of chunk(clean, 100)) {
+    const { data, error } = await supabaseAdmin
+      .from('books')
+      .select('isbn, barcode')
+      .eq('is_deleted', false)
+      .or(part.flatMap((i) => [`barcode.eq.${i}`, `isbn.ilike.%${i}%`]).join(','))
+    if (error) throw new Error(error.message)
+    for (const b of data ?? []) {
+      const tokens = String(b.isbn ?? '').split(/[\s,]+/)
+      for (const i of part) if (b.barcode === i || tokens.includes(i)) existing.add(i)
+    }
+  }
+  return existing
+}
+
 /** 미리보기용: 이미 등록된(삭제 안 된) 책이 있는 ISBN 목록 */
 export async function findExistingIsbns(isbns: string[]): Promise<ActionResult<{ existing: string[] }>> {
   const auth = await requireAcademyAdmin()
   if (!auth.ok) return { success: false, error: auth.error }
 
   const clean = [...new Set(isbns.map((s) => cleanIsbn(String(s ?? ''))).filter((s): s is string => !!s))].slice(0, MAX_IMPORT_ROWS)
-  const existing = new Set<string>()
-  for (const part of chunk(clean, 100)) {
-    // isbn 칸에는 "ISBN10 ISBN13" 처럼 두 개가 들어 있는 경우가 많아 바코드와 함께 본다
-    const { data } = await supabaseAdmin
-      .from('books')
-      .select('isbn, barcode')
-      .eq('is_deleted', false)
-      .or(part.flatMap((i) => [`barcode.eq.${i}`, `isbn.ilike.%${i}%`]).join(','))
-    for (const b of data ?? []) {
-      const tokens = String(b.isbn ?? '').split(/[\s,]+/)
-      for (const i of part) if (b.barcode === i || tokens.includes(i)) existing.add(i)
-    }
+  try {
+    return { success: true, data: { existing: [...(await queryExistingIsbns(clean))] } }
+  } catch {
+    return { success: false, error: '이미 있는 책을 확인하지 못했습니다.' }
   }
-  return { success: true, data: { existing: [...existing] } }
 }
+
+/** 일괄 등록의 카카오 ISBN 조회 시간 제한 (다른 화면의 조회는 시간 제한 없이 그대로) */
+const IMPORT_LOOKUP_TIMEOUT_MS = 5000
 
 type LookedUpBook = {
   title: string
@@ -642,7 +711,7 @@ type LookedUpBook = {
 /** 도서 등록 화면과 같은 ISBN 조회: 카카오 → (설정 isbn_fallback === 'openlibrary' 일 때만) Open Library */
 async function lookupIsbn(isbn: string, fallbackOn: boolean): Promise<LookedUpBook | null> {
   try {
-    const book = await searchBookByISBN(isbn)
+    const book = await searchBookByISBN(isbn, { timeoutMs: IMPORT_LOOKUP_TIMEOUT_MS })
     if (book) {
       return {
         title: book.title,
@@ -687,10 +756,12 @@ async function lookupIsbn(isbn: string, fallbackOn: boolean): Promise<LookedUpBo
  * (a) 도서 일괄 등록. 줄마다 기존 createBook 을 그대로 부른다(검증·삭제된 같은 바코드 복원·중복 오류 동일).
  * 바코드: 엑셀 바코드 칸 > ISBN(이미 쓰이면 자체 바코드 자동 발급, 복본) > 자체 바코드 자동 발급.
  * 엑셀에 적은 값이 우선이고, 빈 칸만 ISBN 조회 결과로 채운다.
+ * skipExisting=true 면 줄마다 등록 직전에 같은 ISBN 책이 있는지 DB에서 다시 확인해 건너뛴다
+ * (미리보기 뒤에 등록된 책·같은 파일 앞줄에서 방금 등록된 책·다시 실행한 경우 모두 막음).
  */
 export async function importBooks(
   rows: ImportRow[],
-  options: { lookup: boolean; defaultShelf?: string }
+  options: { lookup: boolean; defaultShelf?: string; skipExisting?: boolean }
 ): Promise<ActionResult<{ results: ImportLineResult[] }>> {
   const auth = await requireAcademyAdmin()
   if (!auth.ok) return { success: false, error: auth.error }
@@ -715,6 +786,16 @@ export async function importBooks(
     if (!shelfNames.has(shelf)) { fail(`'${shelf}' 책장이 없습니다. 책장 이름을 확인하세요.`); continue }
 
     const isbn = v.isbn ? cleanIsbn(v.isbn) : null
+    if (options.skipExisting && isbn) {
+      let exists: boolean
+      try {
+        exists = (await queryExistingIsbns([isbn])).has(isbn)
+      } catch {
+        fail('같은 ISBN 책이 있는지 확인하지 못해 등록하지 않았습니다. 다시 시도해 주세요.')
+        continue
+      }
+      if (exists) { results.push({ line, ok: false, skipped: true, message: '건너뜀: 이미 있는 책(같은 ISBN)' }); continue }
+    }
     const found = options.lookup && isbn ? await lookupIsbn(isbn, fallbackOn) : null
     const title = v.title || found?.title || ''
     if (!title) { fail('제목이 없고 ISBN으로도 책 정보를 찾지 못했습니다.'); continue }
@@ -765,13 +846,29 @@ export async function importBooks(
 
 type BookMatch = { id: string; title: string; author: string; isbn: string; barcode: string }
 
+/** 저자 비교용: 공백·구두점·기호를 빼고 소문자로 (글자·숫자만 남김) */
+function authorKey(s: string | null | undefined): string {
+  return String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')
+}
+
+/** 저자가 맞는지: 둘 다 비어 있지 않고, 한쪽이 다른 쪽을 포함하면 같다고 본다 ("E. B. White" ↔ "White, E.B." 는 안 맞음 — 부분 포함만) */
+function authorMatches(bookAuthor: string | null | undefined, csvAuthor: string): boolean {
+  const a = authorKey(bookAuthor)
+  const b = authorKey(csvAuthor)
+  if (!a || !b) return false
+  return a.includes(b) || b.includes(a)
+}
+
 function escapeLike(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_')
 }
 
-/** AR 일괄 입력에서 책 찾기: ISBN → 바코드 → 제목(정확 일치, 대소문자 무시) */
+/** AR 일괄 입력에서 책 찾기: ISBN → 바코드 → 제목(정확 일치, 대소문자 무시. 엑셀에 저자가 있으면 저자도 맞는 책만) */
 async function findBooksForAr(v: Record<string, string>): Promise<
-  { kind: 'found'; books: BookMatch[]; by: string } | { kind: 'not_found' } | { kind: 'ambiguous'; books: BookMatch[] }
+  | { kind: 'found'; books: BookMatch[]; by: string }
+  | { kind: 'not_found' }
+  | { kind: 'ambiguous'; books: BookMatch[] }
+  | { kind: 'author_mismatch'; books: BookMatch[] }
 > {
   const sel = 'id, title, author, isbn, barcode'
   const isbn = v.isbn ? cleanIsbn(v.isbn) : null
@@ -799,20 +896,33 @@ async function findBooksForAr(v: Record<string, string>): Promise<
       .eq('is_deleted', false)
       .ilike('title', escapeLike(title))
       .limit(50)
-    const books = (data ?? []).filter((b) => b.title.trim().toLowerCase() === title.toLowerCase())
-    if (books.length === 1) return { kind: 'found', books, by: '제목' }
-    if (books.length > 1) {
-      // 저자·ISBN 이 모두 같으면 같은 책의 복본으로 보고 모두 갱신, 다르면 어느 책인지 몰라 건너뛴다
-      const sig = (b: BookMatch) => `${(b.author ?? '').trim().toLowerCase()}|${(b.isbn ?? '').trim()}`
-      if (new Set(books.map(sig)).size === 1) return { kind: 'found', books, by: '제목(복본)' }
-      return { kind: 'ambiguous', books }
-    }
+    const sameTitle = (data ?? []).filter((b) => b.title.trim().toLowerCase() === title.toLowerCase())
+    if (sameTitle.length === 0) return { kind: 'not_found' }
+    const csvAuthor = (v.author ?? '').trim()
+    // 엑셀에 저자가 있으면 저자도 맞는 책만 (후보가 1권이어도 저자가 다르면 건너뜀)
+    const books = csvAuthor ? sameTitle.filter((b) => authorMatches(b.author, csvAuthor)) : sameTitle
+    if (books.length === 0) return { kind: 'author_mismatch', books: sameTitle }
+    const by = csvAuthor ? '제목·저자' : '제목'
+    if (books.length === 1) return { kind: 'found', books, by }
+    // 여러 권: 저자·ISBN 이 모두 같으면 같은 책의 복본으로 보고 모두 갱신.
+    // 저자·ISBN 이 모두 빈 책이 여러 권이면 같은 책인지 알 수 없어 건너뛴다. 서로 다르면 건너뛴다.
+    const sig = (b: BookMatch) => `${authorKey(b.author)}|${String(b.isbn ?? '').trim()}`
+    const sigs = new Set(books.map(sig))
+    if (sigs.size === 1 && !sigs.has('|')) return { kind: 'found', books, by: `${by}(복본)` }
+    return { kind: 'ambiguous', books }
   }
   return { kind: 'not_found' }
 }
 
+/** 결과 문구용 바코드 목록: 3개까지 쓰고 나머지는 "외 n권" */
+function barcodeList(books: BookMatch[]): string {
+  const codes = books.map((b) => b.barcode).filter(Boolean)
+  if (codes.length === 0) return '바코드 없음'
+  return codes.length > 3 ? `${codes.slice(0, 3).join(', ')} 외 ${codes.length - 3}권` : codes.join(', ')
+}
+
 export type ArImportLineResult = ImportLineResult & {
-  status: 'updated' | 'not_found' | 'ambiguous' | 'error'
+  status: 'updated' | 'not_found' | 'ambiguous' | 'author_mismatch' | 'error'
   /** 여러 권 걸린 줄: 후보 책 */
   candidates?: { title: string; author: string; barcode: string }[]
 }
@@ -843,7 +953,17 @@ export async function importArInfo(rows: ImportRow[]): Promise<ActionResult<{ re
         line,
         ok: false,
         status: 'ambiguous',
-        message: `같은 제목의 다른 책이 ${match.books.length}권 있어 건너뛰었습니다. ISBN이나 바코드로 다시 넣어 주세요.`,
+        message: `같은 제목의 책이 ${match.books.length}권 있는데 같은 책인지 알 수 없어 건너뛰었습니다. ISBN이나 바코드(또는 저자)로 다시 넣어 주세요.`,
+        candidates: match.books.map((b) => ({ title: b.title, author: b.author, barcode: b.barcode })),
+      })
+      continue
+    }
+    if (match.kind === 'author_mismatch') {
+      results.push({
+        line,
+        ok: false,
+        status: 'author_mismatch',
+        message: `제목이 같은 책은 있지만 저자가 엑셀('${v.author}')과 달라 건너뛰었습니다. ISBN이나 바코드로 다시 넣어 주세요.`,
         candidates: match.books.map((b) => ({ title: b.title, author: b.author, barcode: b.barcode })),
       })
       continue
@@ -856,35 +976,52 @@ export async function importArInfo(rows: ImportRow[]): Promise<ActionResult<{ re
       line,
       ok: true,
       status: 'updated',
-      message: `${match.books[0].title} · ${match.by}로 찾음${n > 1 ? ` · ${n}권 갱신` : ''}`,
+      message: `${match.books[0].title} · ${match.books[0].author || '저자 없음'} · ${barcodeList(match.books)} · ${match.by}로 찾음${n > 1 ? ` · ${n}권 갱신` : ''}`,
     })
   }
   return { success: true, data: { results } }
 }
 
-/** (c) 학생 일괄 등록. 같은 반에 같은 이름이 이미 있으면 skipDuplicates=true 일 때 건너뛴다 */
+/**
+ * (c) 학생 일괄 등록. 같은 반에 같은 이름이 이미 있으면 skipDuplicates=true 일 때 건너뛴다.
+ * 반 목록(member_groups)에 없는 반은 등록 전에 서버에서 목록에 추가한다.
+ */
 export async function importStudents(
   rows: ImportRow[],
   options: { skipDuplicates: boolean }
-): Promise<ActionResult<{ results: ImportLineResult[] }>> {
+): Promise<ActionResult<{ results: ImportLineResult[]; addedClasses: string[]; classWarning?: string }>> {
   const auth = await requireAcademyAdmin()
   if (!auth.ok) return { success: false, error: auth.error }
 
   const clean = sanitizeRows('students', rows)
   if (!clean) return { success: false, error: rowsError() }
 
+  // 엑셀이 지운 보호자 연락처 앞 0 복원 (화면 미리보기에서도 고쳐 보내지만 서버에서도 한 번 더)
+  for (const r of clean) {
+    const fixed = restorePhoneLeadingZero(r.values.contact_phone ?? '')
+    if (fixed) r.values.contact_phone = fixed
+  }
+
+  // 새 반을 반 목록에 추가 (확인을 통과한 줄의 반만)
+  const classes = await addMissingClasses(clean.filter((r) => !checkImportRow('students', r.values)).map((r) => r.values.group))
+  const addedClasses = classes.ok ? classes.added : []
+  const classWarning = classes.ok ? undefined : classes.error
+
   const results: ImportLineResult[] = []
   for (const { line, values: v } of clean) {
     const check = checkImportRow('students', v)
     if (check) { results.push({ line, ok: false, message: check }); continue }
     if (options.skipDuplicates) {
-      const { count } = await supabaseAdmin
+      // 반별 현황과 같은 기준: 회원(resident)이면서 비회원(is_guest) 아님
+      const { count, error: dupError } = await supabaseAdmin
         .from('profiles')
         .select('id', { count: 'exact', head: true })
         .eq('role', 'resident')
+        .eq('is_guest', false)
         .eq('name', v.name)
         .eq('dong_ho', v.group)
-      if ((count ?? 0) > 0) { results.push({ line, ok: false, message: `'${v.group}' 반에 '${v.name}' 학생이 이미 있어 건너뛰었습니다.` }); continue }
+      if (dupError) { results.push({ line, ok: false, message: '같은 학생이 있는지 확인하지 못해 등록하지 않았습니다. 다시 시도해 주세요.' }); continue }
+      if ((count ?? 0) > 0) { results.push({ line, ok: false, skipped: true, message: `건너뜀: '${v.group}' 반에 '${v.name}' 학생이 이미 있습니다.` }); continue }
     }
     const created = await createStudent({
       name: v.name,
@@ -892,11 +1029,13 @@ export async function importStudents(
       contact_phone: v.contact_phone,
       memo: v.memo,
       grade: v.grade,
+      zpd_low: v.zpd_low,
+      zpd_high: v.zpd_high,
     })
     if (!created.success) { results.push({ line, ok: false, message: created.error ?? '학생 등록에 실패했습니다.' }); continue }
     results.push({ line, ok: true, message: `${v.group} · ${v.name}${created.data?.warning ? ` (${created.data.warning})` : ''}` })
   }
-  return { success: true, data: { results } }
+  return { success: true, data: { results, addedClasses, classWarning } }
 }
 
 // ─────────────────────────────────────────────
@@ -923,7 +1062,9 @@ export async function getBooksMissingAr(params: { q?: string; page?: number; lim
 
   const page = Math.max(1, Math.floor(params.page ?? 1))
   const limit = Math.min(100, Math.max(5, Math.floor(params.limit ?? 30)))
-  const q = (params.q ?? '').trim().replace(/[%_,()"\\]/g, '')
+  // PostgREST or() 구분 문자(쉼표·괄호·따옴표)는 빼고, LIKE 특수 문자(% _ \)는 escapeLike 로 글자 그대로 찾게 한다
+  const qRaw = (params.q ?? '').trim().replace(/[,()"]/g, '')
+  const q = qRaw ? escapeLike(qRaw) : ''
   const MAX_BOOKS = 10000
 
   type Row = { id: string; title: string; author: string; publisher: string | null; isbn: string; barcode: string; location_group: string }

@@ -78,17 +78,24 @@ export async function searchBooksByTitle(title: string): Promise<KakaoBookResult
   return data.documents.map(mapDoc)
 }
 
-export async function searchBookByISBN(isbn: string): Promise<KakaoBookResult | null> {
+/**
+ * ISBN 으로 책 1권 찾기.
+ * options.timeoutMs: 주면 그 시간 안에 응답이 없을 때 오류를 던진다(학원 일괄 등록에서만 씀).
+ * 주지 않으면 예전과 똑같이 시간 제한 없이 부른다(fetch 옵션도 같음).
+ */
+export async function searchBookByISBN(isbn: string, options?: { timeoutMs?: number }): Promise<KakaoBookResult | null> {
   const apiKey = process.env.KAKAO_REST_API_KEY
   if (!apiKey) {
     throw new Error('KAKAO_REST_API_KEY 환경변수가 설정되지 않았습니다.')
   }
 
+  const timeoutMs = options?.timeoutMs
   const res = await fetch(
     `https://dapi.kakao.com/v3/search/book?query=${encodeURIComponent(isbn)}&target=isbn`,
     {
       headers: { Authorization: `KakaoAK ${apiKey}` },
       next: { revalidate: 86400 },
+      ...(timeoutMs && timeoutMs > 0 ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
     }
   )
 

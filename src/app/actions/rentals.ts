@@ -4,7 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { supabaseAdmin } from '@/lib/supabase/admin'
 import { checkoutSchema, returnSchema } from '@/lib/validations/books'
 import { getCurrentUser } from '@/app/actions/auth'
-import { allowsKioskReturn } from '@/lib/site-mode'
+import { allowsKioskReturn, isAcademy } from '@/lib/site-mode'
 import { phoneToEmail, pinToPassword } from '@/lib/validations/auth'
 import { getKSTNow, getKSTDateString, getKSTDateAfterDays } from '@/lib/date'
 import { awardJellyForCheckout, awardJellyForReturn, awardJellyForCancel } from '@/app/actions/jelly'
@@ -17,6 +17,27 @@ async function getSettingValue(supabase: Awaited<ReturnType<typeof createClient>
     .eq('key', key)
     .single()
   return data ? parseInt(data.value, 10) || defaultValue : defaultValue
+}
+
+const ACADEMY_INACTIVE_ERROR = '퇴원 처리된 학생입니다. 대출할 수 없습니다.'
+
+/**
+ * 학원 모드에서만: 퇴원(academy_members.status = 'inactive') 학생이면 대출을 막는다.
+ * 학원이 아니면 site_type 한 번만 읽고 바로 null (academy_members 는 읽지 않음) → 아파트·학교·마을·유치원 결과 그대로.
+ */
+async function academyInactiveCheckoutError(userId: string): Promise<string | null> {
+  const { data: siteType } = await supabaseAdmin
+    .from('library_settings')
+    .select('value')
+    .eq('key', 'site_type')
+    .maybeSingle()
+  if (!isAcademy(siteType?.value)) return null
+  const { data: member } = await supabaseAdmin
+    .from('academy_members')
+    .select('status')
+    .eq('user_id', userId)
+    .maybeSingle()
+  return member?.status === 'inactive' ? ACADEMY_INACTIVE_ERROR : null
 }
 
 interface CheckoutResult {
@@ -53,6 +74,11 @@ export async function checkoutBook(formData: FormData): Promise<ActionResult<Che
   }
 
   const { user_id, barcode } = parsed.data
+
+  // 학원 모드: 퇴원 학생 대출 막기 (다른 모드는 결과 그대로)
+  const inactiveError = await academyInactiveCheckoutError(user_id)
+  if (inactiveError) return { success: false, error: inactiveError }
+
   const supabase = await createClient()
 
   // 도서 조회
@@ -1081,6 +1107,10 @@ export async function selfCheckout(barcode: string): Promise<ActionResult<{ book
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { success: false, error: '로그인이 필요합니다.' }
+
+  // 학원 모드: 퇴원 학생 대출 막기 (셀프·키오스크 대출 공통. 다른 모드는 결과 그대로)
+  const inactiveError = await academyInactiveCheckoutError(user.id)
+  if (inactiveError) return { success: false, error: inactiveError }
 
   // 도서 조회
   const { data: book } = await supabase

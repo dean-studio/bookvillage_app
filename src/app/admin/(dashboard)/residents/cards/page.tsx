@@ -9,13 +9,19 @@ import { ArrowLeft, Loader2, Printer, QrCode } from "lucide-react";
 import { QrCodeSvg } from "@/components/qr-code";
 import { getCardMembers } from "@/app/actions/member-cards";
 import { getPublicSettings } from "@/app/actions/settings";
+import { getInactiveStudentIds } from "@/app/actions/academy";
+import { isAcademy } from "@/lib/site-mode";
 
 type Member = Awaited<ReturnType<typeof getCardMembers>>[number];
 
 function MemberCardPrint() {
   const router = useRouter();
   const params = useSearchParams();
-  const [members, setMembers] = useState<Member[]>([]);
+  const [allMembers, setAllMembers] = useState<Member[]>([]);
+  // 학원 모드에서만 채운다: 퇴원생 id (아파트·유치원 등은 비어 있어 목록이 그대로)
+  const [inactiveIds, setInactiveIds] = useState<Set<string>>(new Set());
+  const [academyMode, setAcademyMode] = useState(false);
+  const [includeInactive, setIncludeInactive] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [group, setGroup] = useState("전체");
   const [loaded, setLoaded] = useState(false);
@@ -23,16 +29,31 @@ function MemberCardPrint() {
   const [logoUrl, setLogoUrl] = useState("/logo.png");
 
   useEffect(() => {
-    Promise.all([getCardMembers(), getPublicSettings()]).then(([list, settings]) => {
-      setMembers(list);
-      setLibraryName(settings.apartment_name || "작은도서관");
-      if (settings.logo_url) setLogoUrl(settings.logo_url);
+    Promise.all([getCardMembers(), getPublicSettings()]).then(async ([list, settings]) => {
       // ?ids=a,b → 해당 회원만 선택 (회원 상세/추가 후 바로 인쇄)
       const ids = params.get("ids")?.split(",").filter(Boolean);
+      // 학원 모드일 때만 퇴원생을 읽어 기본으로 뺀다 (다른 모드는 추가 요청 없음)
+      if (isAcademy(settings.site_type)) {
+        const res = await getInactiveStudentIds();
+        const inactive = new Set(res.success ? res.data?.ids ?? [] : []);
+        setAcademyMode(true);
+        setInactiveIds(inactive);
+        // 퇴원생을 콕 집어 인쇄하러 온 경우(?ids=)에는 퇴원생도 보이게
+        if (ids?.some((id) => inactive.has(id))) setIncludeInactive(true);
+      }
+      setAllMembers(list);
+      setLibraryName(settings.apartment_name || "작은도서관");
+      if (settings.logo_url) setLogoUrl(settings.logo_url);
       setSelected(new Set(ids && ids.length > 0 ? ids : list.map((m) => m.id)));
       setLoaded(true);
     });
   }, [params]);
+
+  const members = useMemo(
+    () => (academyMode && !includeInactive ? allMembers.filter((m) => !inactiveIds.has(m.id)) : allMembers),
+    [allMembers, academyMode, includeInactive, inactiveIds]
+  );
+  const hiddenInactive = allMembers.length - members.length;
 
   const groups = useMemo(() => ["전체", ...Array.from(new Set(members.map((m) => m.dong_ho)))], [members]);
   const visible = group === "전체" ? members : members.filter((m) => m.dong_ho === group);
@@ -83,7 +104,7 @@ function MemberCardPrint() {
         <div className="flex justify-center py-12">
           <Loader2 className="size-8 animate-spin text-muted-foreground" />
         </div>
-      ) : members.length === 0 ? (
+      ) : allMembers.length === 0 ? (
         <p className="text-center text-muted-foreground py-12 print:hidden">
           카드 회원이 없습니다. 회원 목록에서 회원을 추가하세요.
         </p>
@@ -101,6 +122,15 @@ function MemberCardPrint() {
                   </Button>
                 ))}
               </div>
+              {academyMode && inactiveIds.size > 0 && (
+                <label className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" checked={includeInactive} onChange={(e) => setIncludeInactive(e.target.checked)} />
+                  퇴원생 포함
+                  {!includeInactive && hiddenInactive > 0 && (
+                    <span className="text-muted-foreground">(퇴원생 {hiddenInactive}명은 목록에서 뺐습니다)</span>
+                  )}
+                </label>
+              )}
               <div className="flex gap-2">
                 <Button size="sm" variant="ghost" onClick={() => selectVisible(true)}>모두 선택</Button>
                 <Button size="sm" variant="ghost" onClick={() => selectVisible(false)}>모두 해제</Button>
@@ -116,6 +146,7 @@ function MemberCardPrint() {
                     <input type="checkbox" checked={selected.has(m.id)} onChange={() => toggle(m.id)} />
                     <span className="font-medium">{m.name}</span>
                     <Badge variant="secondary">{m.dong_ho}</Badge>
+                    {academyMode && inactiveIds.has(m.id) && <Badge variant="outline">퇴원</Badge>}
                   </label>
                 ))}
               </div>
