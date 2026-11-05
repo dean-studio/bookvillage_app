@@ -12,6 +12,8 @@
 > ### 👉 [책빌리지 1호점 운영 이야기 보러 가기 (블로그)](https://blog.naver.com/dean_studio_/224386820985)
 >
 > 🧒 **유치원·어린이집이라면** 아이들이 QR 회원카드로 직접 빌리는 [유치원 모드](#kindergarten)를 보세요. (2호점 유치원에서 운영 중)
+>
+> 🎓 **영어학원이라면** 원서마다 AR 레벨을 붙여 두고 학생이 자기 레벨 책을 골라 빌리는 [학원 모드](#academy)를 보세요. (반별 대출·연체, AR 퀴즈 통과 기록, 레벨 라벨 인쇄)
 
 <table>
 <tr>
@@ -36,6 +38,20 @@
 </table>
 
 ## Versions
+
+### v0.9
+
+- **학원 모드 · AR 레벨 원서 대여** ([자세히 보기](#academy)) — 사이트 유형에 '학원' 추가(반으로 학생 구분, QR 회원카드 로그인). 학원을 고르면 QR 카드 로그인·관리자만 회원 생성·대출 기간 7일·AR 정보·원서 보충 조회가 한 번에 설정됨
+  - 바로 가기: [사이트 유형](#academy-site-type) · [AR 설정](#academy-ar-settings) · [책 AR 정보](#academy-book) · [일괄 등록](#academy-import) · [AR 정보 입력표](#academy-ar-missing) · [반별 현황](#academy-classes) · [AR 통과 체크](#academy-return) · [AR 랭킹](#academy-ranking) · [학생 상세](#academy-student) · [레벨 라벨](#academy-labels) · [학생 화면](#academy-student-app) · [필요한 것](#academy-need)
+- **AR 레벨 정보** ([화면 보기](#academy-book)) — 설정으로 켜면 도서 등록·수정·상세에 Book Level·Points·Quiz No·Interest·단어 수·Lexile 칸과 'AR 찾기'(AR BookFinder) 버튼. 학생 도서 검색에 레벨대·Interest 칩, 레벨순 정렬, 책마다 BL 배지. 사이트 유형과 별개라 아파트·학교 도서관에서도 켤 수 있음 (끄면 지금과 똑같음)
+- **원서 ISBN 보충 조회** — 카카오 도서 검색에 없는 원서는 Open Library에서 제목·저자·출판사·표지를 가져옴 (설정으로 켜기)
+- **반별 현황 · 반 관리** ([화면 보기](#academy-classes)) — 반마다 학생·대출·연체 수, 학생별 레벨(ZPD)·빌린 책·최근 반납과 AR 통과. 반 이름 변경(학생 반도 함께), 반 이동, 퇴원(퇴원생은 대출·카드 인쇄·랭킹에서 제외). 학생 등록·상세에 학년·레벨 범위(ZPD)
+- **엑셀(CSV) 일괄 등록** ([화면 보기](#academy-import)) — 도서·AR 정보·학생을 엑셀 표 붙여넣기 또는 CSV로. 미리보기에서 줄마다 확인, 같은 파일을 다시 올려도 복본·중복 학생이 생기지 않음. AR 정보 없는 책만 모아 표로 입력하는 화면
+- **AR 퀴즈 통과 기록 · AR 포인트 랭킹** ([화면 보기](#academy-return)) — 반납 화면·반별 현황·학생 상세에서 선생님이 통과를 체크하면 포인트·단어 수가 쌓임(젤리와는 별개). 랭킹에 AR 포인트 탭(반 필터, 한국 시간 기준), 학생 내 서재에 AR 독서 카드·'내 레벨 책'
+- **레벨 라벨 인쇄** ([화면 보기](#academy-labels)) — 책등에 붙이는 AR 레벨 라벨(23.5×36mm, A4 한 장에 56개), 레벨대별 색 띠
+- **사이트 유형 판별 정리** — 모드 판별을 `src/lib/site-mode.ts` 한 곳으로 모음. 모르는 유형 값이 저장돼 있어도 로그인 화면이 멈추지 않게 수정, 사이트 유형·프리셋 저장 실패 시 오류 표시
+- **AI로 고쳐 쓰기 안내 · `AGENTS.md`** — README 상단 안내와 AI 코딩 도구가 먼저 읽는 구조·규칙 안내서 추가
+- **DB** — `00032_ar_fields.sql`(도서 AR 칸, 설정 값 길이 제한 해제), `00033_academy.sql`(학생 학년·레벨·상태, AR 통과 기록). 칸·표 추가만 해서 기존 사이트에는 영향 없음
 
 ### v0.8
 
@@ -268,6 +284,149 @@
 - 대출용 태블릿 또는 PC 1대 (브라우저만 있으면 됨)
 - 책에 붙일 바코드 — 책 뒤의 ISBN 바코드를 그대로 쓰거나, **바코드 생성** 메뉴에서 자체 바코드를 인쇄해 붙입니다. 보드게임·교구처럼 ISBN이 없는 물건도 자체 바코드로 등록해 빌려줄 수 있어요.
 
+<a id="academy"></a>
+
+## 학원 모드 · AR 레벨 원서 대여
+
+> 영어학원·공부방처럼 **원서를 레벨별로 빌려주는 곳**을 위한 방식입니다. 책마다 AR(Accelerated Reader) 레벨을 붙여 두면 학생은 **자기 레벨에 맞는 책**을 골라 QR 회원카드로 빌리고, 선생님은 반별로 대출·연체와 AR 퀴즈 통과를 한눈에 봅니다.
+> 아래 화면은 데모 사이트에서 가상의 학생·반으로 찍었습니다. 책 제목·저자는 실제 원서지만, **화면에 보이는 AR 레벨·포인트·퀴즈 번호·단어 수는 설명을 위한 예시 값**이라 실제 AR 정보와 다를 수 있습니다.
+
+**바로 가기:** [1. 사이트 유형](#academy-site-type) · [2. 원서·AR 레벨 설정](#academy-ar-settings) · [3. 책마다 AR 정보](#academy-book) · [4. 엑셀 일괄 등록](#academy-import) · [5. AR 정보 입력표](#academy-ar-missing) · [6. 반별 현황](#academy-classes) · [7. 반납할 때 AR 통과 체크](#academy-return) · [8. AR 포인트 랭킹](#academy-ranking) · [9. 학생 상세](#academy-student) · [10. 레벨 라벨 인쇄](#academy-labels) · [11. 학생 화면](#academy-student-app) · [필요한 것](#academy-need)
+
+<a id="academy-site-type"></a>
+
+### 1. 사이트 유형에서 '학원' 선택
+
+**관리 → 사이트 유형**에서 학원을 고르면 학원에 맞는 설정이 한 번에 적용됩니다: QR 회원카드 로그인, 관리자만 회원 생성, 홈 화면 리더기 대출 OFF, 대출 기간 7일, AR 정보 사용, 원서 ISBN 보충 조회(Open Library) 사용. 고른 뒤에도 각 설정 화면에서 하나씩 바꿀 수 있습니다.
+
+학생 등록·QR 회원카드 발급·카드 인쇄는 [유치원 모드](#kids-member)와 같습니다(반 + 이름). 학원에서는 학년과 레벨 범위(ZPD)도 함께 적을 수 있습니다.
+
+<img src="docs/images/academy/academy-site-type.png" width="800" alt="사이트 유형에서 학원 선택 (프리셋 안내)" />
+
+<a id="academy-ar-settings"></a>
+
+### 2. 원서·AR 레벨 설정
+
+**관리 → 원서·AR 레벨**에서 두 기능을 켜고 끕니다. 둘 다 사이트 유형과 별개라 아파트·학교 도서관에서도 쓸 수 있습니다.
+
+- **AR 레벨 정보 사용** — 도서 등록·수정 화면에 AR 칸이 생기고, 학생 도서 검색에서 레벨로 찾고 레벨순으로 볼 수 있습니다. 꺼도 입력해 둔 AR 정보는 지워지지 않고 화면에서만 숨겨집니다.
+- **Open Library 보충 조회** — 바코드(ISBN)로 책을 찾을 때 카카오 도서 검색에 없는 원서는 Open Library(해외 도서 정보)에서 제목·저자·출판사·표지를 가져옵니다.
+
+<img src="docs/images/academy/academy-ar-settings.png" width="800" alt="원서·AR 레벨 설정" />
+
+<a id="academy-book"></a>
+
+### 3. 책마다 AR 정보 (Book Level · Points · Quiz No · Interest)
+
+도서 등록·수정 화면에 **AR 정보** 칸(Book Level, Points, Quiz No, Interest, 단어 수, Lexile)이 생깁니다. **AR 찾기**를 누르면 책 제목이 복사되고 AR BookFinder가 열려서 값을 확인해 옮겨 적을 수 있습니다. 도서 상세에는 `BL 4.4 · 5.0 pts · Quiz #…` 배지로 보입니다.
+
+> **AR 정보는 자동으로 가져오지 않습니다.** AR 정보를 관리하는 Renaissance는 공개 API를 제공하지 않습니다. 그래서 학원이 이미 가진 AR 목록(엑셀)을 [일괄 등록](#academy-import)으로 붙여 넣거나, AR BookFinder에서 확인해 직접 입력합니다.
+
+<table>
+  <tr>
+    <td width="62%"><img src="docs/images/academy/academy-book-detail.png" alt="도서 상세의 AR 정보 배지" /></td>
+    <td width="38%"><img src="docs/images/academy/academy-book-edit.png" alt="도서 정보 수정의 AR 칸" /></td>
+  </tr>
+  <tr>
+    <td align="center">도서 상세 — BL · 포인트 · 퀴즈 번호 배지</td>
+    <td align="center">정보 수정 — AR 칸과 'AR 찾기'</td>
+  </tr>
+</table>
+
+<a id="academy-import"></a>
+
+### 4. 엑셀(CSV) 일괄 등록 — 도서 · AR 정보 · 학생
+
+**일괄 등록**에서 원서 목록, 이미 등록한 책의 AR 정보, 학생 명단을 한꺼번에 넣습니다. 엑셀에서 머리글 줄부터 표를 복사해 붙여 넣거나 CSV 파일을 고르고 **미리보기**를 누르면 줄마다 결과가 나옵니다(OK / 이미 있는 책 / 없는 책장 등).
+
+- ISBN만 있어도 책 정보(제목·저자·출판사·표지)를 찾아 빈 칸을 채웁니다. 엑셀에 적은 값이 먼저입니다.
+- '이미 있는 책은 건너뛰기'를 켜 두면 같은 파일을 두 번 올려도 복본이 생기지 않습니다.
+- 엑셀 파일(.xlsx)은 바로 읽지 못하므로 파일로 올릴 때는 CSV로 저장해 주세요.
+
+<img src="docs/images/academy/academy-import.png" width="800" alt="일괄 등록 붙여넣기와 미리보기" />
+
+<a id="academy-ar-missing"></a>
+
+### 5. AR 정보 없는 책 입력표
+
+**AR 정보 입력**은 AR 레벨이 비어 있는 책만 모아 표로 보여 줍니다. 칸 사이는 Tab, 아래 줄 같은 칸은 Enter로 옮겨 가며 빠르게 입력하고 **한 번에 저장**합니다. 같은 ISBN의 복본은 한 줄로 묶여 함께 저장됩니다.
+
+<img src="docs/images/academy/academy-ar-missing.png" width="800" alt="AR 정보 없는 책 입력표" />
+
+<a id="academy-classes"></a>
+
+### 6. 반별 현황 — 대출 · 연체 · AR 통과
+
+**반별 현황**에서 반마다 학생 수·대출·연체 권수를 보고, 반을 누르면 학생별 학년, 레벨(ZPD), 빌린 책과 반납 예정일(연체는 빨간색), 최근 30일 동안 반납한 책과 AR 통과 여부가 나옵니다. 여기서 바로 **AR 통과**를 체크할 수 있습니다.
+
+학생을 골라 **반 이동**이나 **퇴원** 처리를 하고, **반 이름 변경**을 하면 그 반 학생들의 반도 함께 바뀝니다. 퇴원한 학생은 대출·카드 인쇄·랭킹에서 빠집니다.
+
+<img src="docs/images/academy/academy-classes.png" width="800" alt="반별 현황 (대출·연체·AR 통과)" />
+
+<a id="academy-return"></a>
+
+### 7. 반납할 때 AR 퀴즈 통과 체크
+
+**AR 퀴즈는 학생이 Renaissance(AR 프로그램)에서 풉니다.** 책빌리지는 퀴즈를 내거나 채점하지 않고, 선생님이 확인한 **통과 기록만** 남깁니다.
+
+반납 화면에서 책 바코드를 찍으면 반납 완료 아래에 **AR 퀴즈** 상자가 나옵니다. **AR 퀴즈 통과 체크**를 누르면 그 책의 포인트와 단어 수가 학생 기록에 쌓입니다. 잘못 눌렀으면 취소할 수 있고, 젤리 포인트와는 연결되지 않습니다.
+
+<img src="docs/images/academy/academy-return-ar.png" width="800" alt="반납 화면의 AR 퀴즈 통과 체크" />
+
+<a id="academy-ranking"></a>
+
+### 8. AR 포인트 랭킹
+
+**랭킹 → AR 포인트** 탭에서 기간·반별로 통과 권수, 읽은 단어 수, 포인트 순위를 봅니다. 선생님이 통과를 체크한 날(한국 시간) 기준이며 퇴원생은 빠집니다.
+
+<img src="docs/images/academy/academy-ranking-ar.png" width="800" alt="랭킹 AR 포인트 탭" />
+
+<a id="academy-student"></a>
+
+### 9. 학생 상세 — 학년 · 레벨 · AR 통과 기록
+
+회원 상세의 **학원 정보**에서 학년, 레벨 범위(ZPD), 재원/퇴원 상태를 고치고 통과 권수·누적 포인트·읽은 단어 수와 통과한 책 목록(체크한 선생님 포함)을 봅니다. **책 찾아서 통과 기록**으로 대출 기록이 없는 책(교실에서 읽은 책 등)도 찾아서 통과를 기록할 수 있습니다.
+
+<img src="docs/images/academy/academy-student.png" width="800" alt="학생 상세의 학원 정보와 AR 통과 기록" />
+
+<a id="academy-labels"></a>
+
+### 10. 레벨 라벨 인쇄
+
+**레벨 라벨 인쇄**에서 책장과 레벨 범위를 골라 책등에 붙일 AR 레벨 라벨을 만듭니다. 라벨 하나는 23.5×36mm, A4 한 장에 56개(8개 × 7줄)이고 레벨대마다 색 띠가 달라 책장에서 레벨을 한눈에 볼 수 있습니다. 라벨 아래 칸(제목/바코드/없음)과 앞에서 비울 칸(쓰다 남은 라벨지 이어 쓰기)을 고를 수 있습니다.
+
+<img src="docs/images/academy/academy-level-labels.png" width="800" alt="레벨 라벨 인쇄 미리보기" />
+
+<a id="academy-student-app"></a>
+
+### 11. 학생 화면 — 내 레벨 책 · BL 배지 · AR 독서 카드
+
+학생이 QR 회원카드로 로그인하면 도서 검색에 **레벨 칩**(0점대~6 이상, Interest LG·MG·MG+·UG)과 레벨순 정렬이 생깁니다. **내 레벨 책**을 누르면 선생님이 정해 둔 레벨 범위(ZPD) 안의 책 중 지금 빌릴 수 있는 책만 보여 줍니다. 내 서재에는 퀴즈 통과 권수·포인트·읽은 단어 수가 담긴 **AR 독서** 카드가 나옵니다.
+
+<table>
+  <tr>
+    <td width="33%"><img src="docs/images/academy/academy-student-books.png" alt="학생 도서 검색 (내 레벨 책)" /></td>
+    <td width="33%"><img src="docs/images/academy/academy-student-book.png" alt="학생 책 상세의 BL 배지" /></td>
+    <td width="33%"><img src="docs/images/academy/academy-student-mypage.png" alt="학생 내 서재의 AR 독서 카드" /></td>
+  </tr>
+  <tr>
+    <td align="center">도서 검색 — 내 레벨 책 · BL 배지</td>
+    <td align="center">책 상세 — 레벨·포인트·퀴즈 번호</td>
+    <td align="center">내 서재 — AR 독서 카드</td>
+  </tr>
+</table>
+
+<a id="academy-need"></a>
+
+### 필요한 것
+
+- **2D(QR) 바코드 리더기** — 학생이 QR 회원카드로 로그인합니다. 유치원 모드와 같은 일반 USB 리더기면 됩니다.
+- **AR 정보 목록** — 학원이 가진 원서 AR 목록(엑셀)이나 AR BookFinder에서 확인한 값. 공개 API가 없어 자동으로 채워지지 않습니다.
+- **AR 퀴즈 이용** — 퀴즈는 Renaissance에서 풉니다. 학원이 따로 이용 중이어야 하고, 책빌리지는 통과 기록만 합니다.
+- 원서 바코드 — 책 뒤 ISBN 바코드를 그대로 쓰거나 **바코드 생성** 메뉴의 자체 바코드를 붙입니다. 레벨 라벨은 A4 용지에 인쇄해 잘라 붙이면 됩니다.
+
+<sub>AR, Accelerated Reader, ATOS는 Renaissance Learning의 상표입니다. 책빌리지는 Renaissance와 관계가 없습니다.</sub>
+
 ## 기술 스택
 
 | 영역 | 기술 |
@@ -276,7 +435,7 @@
 | Database / Auth | Supabase (PostgreSQL, 15 테이블 + 2 뷰) |
 | UI | shadcn/ui + Tailwind CSS 4 (Yellow 테마) |
 | Deployment | Vercel (서울 리전) |
-| External API | 카카오 도서 검색 API |
+| External API | 카카오 도서 검색 API, Open Library (원서 보충 조회, 선택) |
 | Barcode | html5-qrcode |
 
 ## 시작하기
@@ -330,9 +489,10 @@ npx supabase db push
 | `/admin` | 대시보드 |
 | `/admin/residents` | 주민 목록 |
 | `/admin/residents/[id]` | 주민 상세 (PIN 재설정, QR 카드 재발급) |
-| `/admin/residents/new` | 회원 추가 (유치원 모드, QR 카드 발급) |
+| `/admin/residents/new` | 회원 추가 (유치원·학원 모드, QR 카드 발급, 학원은 학년·레벨) |
 | `/admin/residents/cards` | QR 회원카드 인쇄 (A4 10장) |
-| `/admin/rankings` | 랭킹 |
+| `/admin/rankings` | 랭킹 (학원 모드: AR 포인트 탭) |
+| `/admin/academy/classes` | 반별 현황 (학원 모드: 대출·연체·AR 통과, 반 이름 변경·반 이동·퇴원) |
 | `/admin/reports` | 독서록 열람 |
 | `/admin/books` | 도서 목록 |
 | `/admin/books/series` | 시리즈 목록 (인기순, 마지막 권·빠진 권) |
@@ -342,6 +502,9 @@ npx supabase db push
 | `/admin/books/new` | 도서 등록 + 서가 관리 |
 | `/admin/books/barcodes` | 자체 바코드 생성·인쇄 |
 | `/admin/books/logo-print` | 로고 인쇄 |
+| `/admin/academy/import` | 엑셀(CSV) 일괄 등록 — 도서·AR 정보·학생 (학원 모드) |
+| `/admin/academy/ar-missing` | AR 정보 없는 책 입력표 (학원 모드) |
+| `/admin/academy/level-labels` | AR 레벨 라벨 인쇄 (학원 모드) |
 | `/admin/rentals` | 대여중 도서 |
 | `/admin/rentals/period` | 기간별 대여 도서 |
 | `/admin/checkout` | 대출 처리 |
@@ -358,8 +521,9 @@ npx supabase db push
 | `/admin/deletions` | 도서 삭제내역 |
 | `/admin/files` | 자료실 |
 | `/admin/manage` | 설정 관리 |
-| `/admin/manage/site-type` | 사이트 유형 (아파트·학교·마을·유치원) |
+| `/admin/manage/site-type` | 사이트 유형 (아파트·학교·마을·유치원·학원) |
 | `/admin/manage/access` | 로그인·대출 방식 (QR 카드, 리더기 대출, 반 목록) |
+| `/admin/manage/ar` | 원서·AR 레벨 (AR 정보 사용, Open Library 보충 조회) |
 
 ## 문서
 
